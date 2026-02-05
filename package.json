@@ -1,0 +1,26 @@
+{
+    "name": "fitnessprac-local",
+    "version": "1.0.0",
+    "description": "Local-first fitness coaching app",
+    "main": "src/test-db.ts",
+    "scripts": {
+        "test": "tsx src/test-db.ts",
+        "dev": "tsx watch src/test-mongo.ts",
+        "db:reset": "rm -f local-db/database.db && tsx local-db/init.ts"
+    },
+    "keywords": [
+        "fitness",
+        "coaching"
+    ],
+    "author": "",
+    "license": "ISC",
+    "devDependencies": {
+        "@types/node": "^25.2.0",
+        "tsx": "^4.21.0",
+        "typescript": "^5.9.3"
+    },
+    "dependencies": {
+        "dotenv": "^17.2.3",
+        "mongodb": "^7.1.0"
+    }
+}

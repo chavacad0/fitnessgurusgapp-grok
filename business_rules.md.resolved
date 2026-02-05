@@ -1,0 +1,342 @@
+# Business Rules – Fitness Coaching App
+
+> [!IMPORTANT]
+> These rules define the exact behavior of access control, billing, and session management for the MVP.
+
+---
+
+## 1. Access Control & Payment Rules
+
+### Client Login Access Logic
+
+**A client can access the app if ALL of the following are true:**
+
+```
+✅ user.role = 'client'
+✅ client.onboarding_complete = true
+✅ (client.subscription_status IN ('active', 'trial'))
+✅ (client.paid_until >= NOW() - 7 days) OR (client.coach_override_access = true)
+```
+
+**Breakdown:**
+
+1. **`paid_until` + Grace Period**
+   - Client has full access until `paid_until` date
+   - **7-day grace period** begins after `paid_until` expires
+   - Grace period allows login but shows "Payment Overdue" banner
+   - After 7 days past `paid_until`, client is locked out (unless coach override)
+
+2. **Grace Period Behavior**
+   - **Days 0-7 after `paid_until`**: Client can still login, see all data, submit check-ins
+   - **UI shows**: "Your payment is overdue. Please contact your coach to renew."
+   - **Coach sees**: Red flag in client list: "Payment overdue (Day 3/7)"
+
+3. **Hard Lock (Day 8+)**
+   - Client cannot login
+   - Error message: "Your access has expired. Please contact your coach to renew your plan."
+   - All data preserved, nothing deleted
+
+4. **Coach Override**
+   - Coach can set `client.coach_override_access = true`
+   - This bypasses `paid_until` check entirely
+   - Used for: payment plan arrangements, manual extensions, goodwill gestures
+   - Coach can remove override anytime
+
+### Subscription Status States
+
+| Status | Meaning | Access |
+|--------|---------|--------|
+| `active` | Client is paying and current | ✅ Full access (if `paid_until` valid) |
+| `trial` | Free trial period | ✅ Full access (no trial for MVP, but schema supports) |
+| `past_due` | Payment failed or overdue | ⚠️ Grace period or locked |
+| `cancelled` | Client canceled subscription | ❌ No access (unless coach override) |
+
+**State Transitions:**
+- `active` → `past_due` (when `paid_until < NOW()`)
+- `past_due` → `active` (when payment received and `paid_until` updated)
+- `active` → `cancelled` (when client/coach explicitly cancels)
+
+---
+
+## 2. Package & Session Tracking
+
+### Package Definitions (MVP)
+
+**Three standard tiers:**
+
+| Package | Sessions | Validity | Price (SGD) | Use Case |
+|---------|----------|----------|-------------|----------|
+| **Silver** | 10 | 30 days | 300 | Light coaching (1-2x/week) |
+| **Gold** | 20 | 60 days | 550 | Regular coaching (2-3x/week) |
+| **Platinum** | 30 | 90 days | 750 | Intensive coaching (3-4x/week) |
+
+**Custom packages also supported** (coach can create ad-hoc):
+- Time-based programs: `duration_days = 84` (12-week program)
+- One-off sessions: `total_sessions = 1`, `duration_days = 7`
+
+### Package Fields (Updated Schema)
+
+**Add to `packages` table:**
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `package_type` | Enum | ✓ | `silver` \| `gold` \| `platinum` \| `custom` |
+| `duration_days` | Integer | ✓ | Validity period (e.g., 30, 60, 90) |
+| `purchased_at` | Timestamp | ✓ | When client bought package |
+| `expires_at` | Date | ✓ | `purchased_at + duration_days` |
+| `total_sessions` | Integer | ✓ | Number of sessions included |
+| `used_sessions` | Integer | ✓ | Sessions consumed (default: 0) |
+| `status` | Enum | ✓ | `active` \| `expired` \| `completed` |
+
+**Business Logic:**
+- When package purchased → set `expires_at = purchased_at + duration_days`
+- When session logged → increment `used_sessions`
+- When `used_sessions >= total_sessions` → `status = 'completed'`
+- When `expires_at < NOW()` → `status = 'expired'`
+- Client can have multiple packages (e.g., old expired + new active)
+
+### Session Deduction Logic
+
+**When coach logs a session:**
+
+1. Find active package for client:
+   ```sql
+   SELECT * FROM packages 
+   WHERE client_id = :client_id 
+   AND status = 'active'
+   AND used_sessions < total_sessions
+   AND expires_at >= NOW()
+   ORDER BY purchased_at ASC
+   LIMIT 1;
+   ```
+
+2. Create session record:
+   ```sql
+   INSERT INTO sessions (client_id, package_id, coach_id, session_date, notes)
+   VALUES (:client_id, :package_id, :coach_id, NOW(), :notes);
+   ```
+
+3. Increment used sessions:
+   ```sql
+   UPDATE packages 
+   SET used_sessions = used_sessions + 1
+   WHERE id = :package_id;
+   ```
+
+4. Check if package is now completed:
+   ```sql
+   UPDATE packages 
+   SET status = 'completed'
+   WHERE id = :package_id 
+   AND used_sessions >= total_sessions;
+   ```
+
+**Edge Cases:**
+- **No active package**: Coach gets warning "Client has no active sessions. Assign a package first."
+- **Last session used**: Automatically mark package as `completed`, notify coach
+- **Multiple active packages**: Use oldest first (FIFO)
+
+---
+
+## 3. Payment & Renewal Logic
+
+### Payment Processing Flow
+
+**When client pays:**
+
+1. Coach records payment:
+   ```sql
+   INSERT INTO payments (client_id, amount_sgd, payment_method, status, paid_at)
+   VALUES (:client_id, :amount, 'paynow', 'completed', NOW());
+   ```
+
+2. Create new package OR extend `paid_until`:
+   
+   **Option A: Session package** (Silver/Gold/Platinum)
+   ```sql
+   INSERT INTO packages (client_id, package_type, total_sessions, duration_days, ...)
+   VALUES (:client_id, 'gold', 20, 60, ...);
+   ```
+
+   **Option B: Monthly subscription** (no session limit)
+   ```sql
+   UPDATE clients
+   SET paid_until = GREATEST(paid_until, NOW()) + INTERVAL '30 days',
+       subscription_status = 'active'
+   WHERE id = :client_id;
+   ```
+
+3. Remove coach override (if set):
+   ```sql
+   UPDATE clients
+   SET coach_override_access = false
+   WHERE id = :client_id;
+   ```
+
+### Billing Cycle Defaults
+
+| Field | Default Value | Notes |
+|-------|---------------|-------|
+| `billing_cycle` | `monthly` | 30-day recurring |
+| `monthly_fee_sgd` | `300.00` | Base monthly rate |
+| `paid_until` | `start_date + 30 days` | Initial subscription |
+
+**Renewal reminder automation:**
+- 7 days before `paid_until` → WhatsApp message: "Your subscription renews on [date]"
+- 3 days before `paid_until` → In-app notification
+- Day of `paid_until` → Automatic `subscription_status = 'past_due'` (enters grace period)
+
+---
+
+## 4. Invitation Flow Business Rules
+
+### Coach Creates Invitation
+
+**Input:**
+- Client email (required)
+- Client phone (optional, pre-fill for onboarding)
+- Initial package (optional, e.g., "Gold" pre-assigned)
+
+**Process:**
+1. Validate email not already in system
+2. Generate secure token (UUID v4)
+3. Set expiry: 7 days from now
+4. Send WhatsApp message: "You've been invited to join [Coach Name]'s fitness program. Sign up here: app.link/join/{token}"
+
+**Database:**
+```sql
+INSERT INTO invitations (coach_id, email, phone, token, expires_at, status)
+VALUES (:coach_id, :email, :phone, :token, NOW() + INTERVAL '7 days', 'pending');
+```
+
+### Client Accepts Invitation
+
+**Input:**
+- Token from URL (`/join/{token}`)
+- Client fills: name, password, birthday, goals
+
+**Validation:**
+1. Token exists and `status = 'pending'`
+2. Token not expired (`expires_at > NOW()`)
+3. Email from invitation is not already registered
+
+**Process:**
+1. Create `users` record (role = 'client')
+2. Create `clients` record with:
+   - `coach_id` from invitation
+   - `invited_by_coach_id` = invitation coach
+   - `subscription_status = 'active'` (no trial)
+   - `paid_until = NOW() + 30 days` (first month free, or set to NOW if no free month)
+   - `onboarding_complete = false` (redirect to onboarding)
+3. Mark invitation as accepted:
+   ```sql
+   UPDATE invitations
+   SET status = 'accepted', accepted_at = NOW(), client_id = :new_client_id
+   WHERE token = :token;
+   ```
+
+**Edge Cases:**
+- Expired token → "This invitation has expired. Please contact your coach for a new invitation."
+- Already accepted → "This invitation has already been used."
+
+---
+
+## 5. Check-In Submission Rules
+
+### Client-Side Validation
+
+**Required fields:**
+- `steps` (integer, > 0)
+- `hunger_level` (1-10)
+- `energy_level` (1-10)
+
+**Optional fields:**
+- `weight_kg`, `waist_cm`, `meal_photo_url`, `notes`
+
+**Business Rules:**
+- One check-in per day per client
+- Cannot submit future-dated check-ins
+- Can edit today's check-in multiple times (updates `submitted_at`)
+- Cannot edit past check-ins (prevents data manipulation)
+
+### Red Flag Detection (Automatic)
+
+**After check-in submission, flag if:**
+
+| Condition | Red Flag Type | Coach Alert |
+|-----------|---------------|-------------|
+| `energy_level < 4` | `low_energy` | "Low energy reported (Day 1)" |
+| `hunger_level > 7` | `high_hunger` | "High hunger reported (Day 1)" |
+| No check-in for 2+ days | `missed_checkin` | "Missed check-ins (2 days)" |
+| `energy_level < 4` for 3+ consecutive days | `chronic_low_energy` | "⚠️ URGENT: Low energy for 3 days" |
+
+**Implementation:**
+- After check-in insert, run red flag detection query
+- Create notification for coach if flag triggered
+- Mark check-in with `has_red_flag = true` (add boolean field)
+
+---
+
+## 6. Coach Review Queue Logic
+
+### Queue Ordering
+
+**Coach sees check-ins ordered by priority:**
+
+1. **Unreviewed with red flags** (highest priority)
+2. **Unreviewed, no red flags** (by date DESC)
+3. **Reviewed** (hidden by default, toggle to show)
+
+**Query:**
+```sql
+SELECT 
+  ci.*,
+  c.id AS client_id,
+  u.name AS client_name,
+  CASE 
+    WHEN ci.energy_level < 4 THEN 'low_energy'
+    WHEN ci.hunger_level > 7 THEN 'high_hunger'
+    ELSE NULL
+  END AS red_flag_type
+FROM check_ins ci
+JOIN clients c ON c.id = ci.client_id
+JOIN users u ON u.id = c.user_id
+WHERE c.coach_id = :coach_id
+  AND ci.reviewed_by_coach = false
+  AND ci.date >= NOW() - INTERVAL '7 days'
+ORDER BY 
+  (ci.energy_level < 4 OR ci.hunger_level > 7) DESC,
+  ci.date DESC;
+```
+
+### One-Tap Coach Actions
+
+| Action | Result | Updates |
+|--------|--------|---------|
+| **Mark Reviewed** | Clears from queue | `reviewed_by_coach = true`, `reviewed_at = NOW()` |
+| **Add Note** | Private coach note | `coach_notes = :text`, auto-mark reviewed |
+| **Send Message** | WhatsApp/in-app message | Creates `messages` record + mark reviewed |
+
+---
+
+## Summary: Critical Fields to Add
+
+### `clients` table additions:
+- `coach_override_access` (Boolean, default: false)
+
+### `packages` table additions:
+- `package_type` (Enum: `silver` \| `gold` \| `platinum` \| `custom`)
+- `duration_days` (Integer, required, e.g., 30, 60, 90)
+
+### `check_ins` table additions:
+- `has_red_flag` (Boolean, default: false) – for faster querying
+
+---
+
+## Next: Implementation Checklist
+
+With these business rules finalized, the implementation plan will cover:
+1. Database setup (tables, indexes, RLS)
+2. Seed data (coach, packages, first client)
+3. API endpoints for invite flow, check-ins, sessions
+4. Automated jobs (grace period checks, red flag detection)

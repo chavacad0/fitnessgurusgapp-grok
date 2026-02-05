@@ -1,0 +1,521 @@
+# Database Schema – MVP Fitness Coaching App
+
+> [!IMPORTANT]
+> This schema is optimized for:
+> - **Invite-only, pay-gated access** (no public signup)
+> - **Daily check-ins** as the core interaction
+> - **Coach review queue** with red-flag detection
+> - **WhatsApp-first** communication
+> - **Privacy and compliance** (Singapore PDPA)
+> - **Single-coach MVP** with multi-coach scalability
+> - **No technical debt**
+
+---
+
+## Core Tables
+
+### 1. **users**
+*Authentication and basic profile for both coaches and clients*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `email` | String | ✓ | Unique, lowercase |
+| `phone` | String | ✓ | Format: +65XXXXXXXX (Singapore) |
+| `password_hash` | String | ✓ | Hashed with bcrypt/Argon2 |
+| `role` | Enum | ✓ | `coach` \| `client` |
+| `name` | String | ✓ | Full name |
+| `avatar_url` | String | ✗ | Profile photo (S3/CDN) |
+| `timezone` | String | ✓ | Default: `Asia/Singapore` |
+| `created_at` | Timestamp | ✓ | |
+| `updated_at` | Timestamp | ✓ | |
+
+**Why:** Single user table keeps auth simple. Role differentiation happens at application level.
+
+**Indexes:**
+- `email` (unique)
+- `phone` (unique)
+- `role` (for filtering)
+
+---
+
+### 2. **coaches**
+*Extended profile for coach users*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `user_id` | UUID | ✓ | FK → `users.id` |
+| `business_name` | String | ✗ | E.g., "Peak Performance SG" |
+| `whatsapp_number` | String | ✓ | For client communication |
+| `stripe_account_id` | String | ✗ | For future billing integration |
+| `onboarding_complete` | Boolean | ✓ | Default: false |
+| `created_at` | Timestamp | ✓ | |
+
+**Why:** Keeps coach-specific data separate. Extensible for multi-coach businesses later.
+
+**Constraints:**
+- One coach per user (`user_id` unique)
+
+---
+
+### 3. **clients**
+*Extended profile for client users + coach assignment*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `user_id` | UUID | ✓ | FK → `users.id` |
+| `coach_id` | UUID | ✓ | FK → `coaches.id` |
+| `status` | Enum | ✓ | `active` \| `paused` \| `inactive` |
+| `start_date` | Date | ✓ | Program start date |
+| `target_weight_kg` | Decimal | ✗ | Optional goal |
+| `target_waist_cm` | Decimal | ✗ | Optional goal |
+| `daily_step_goal` | Integer | ✗ | E.g., 10000 |
+| `birthday` | Date | ✗ | For age calculation |
+| `consent_whatsapp` | Boolean | ✓ | PDPA compliance |
+| `consent_data_processing` | Boolean | ✓ | PDPA compliance |
+| `onboarding_complete` | Boolean | ✓ | Default: false |
+| `created_at` | Timestamp | ✓ | |
+| `updated_at` | Timestamp | ✓ | |
+
+**Why:** 
+- Coach relationship is explicit and portable (client can switch coaches)
+- Status enables pausing without data loss
+- Consent fields are mandatory for Singapore PDPA
+
+**Indexes:**
+- `coach_id, status` (for coach dashboard filtering)
+- `user_id` (unique)
+
+---
+
+## Daily Check-Ins
+
+### 4. **check_ins**
+*The heartbeat of the app – daily client submissions*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `client_id` | UUID | ✓ | FK → `clients.id` |
+| `date` | Date | ✓ | Check-in date (client's timezone) |
+| `steps` | Integer | ✓ | Daily step count |
+| `hunger_level` | Integer | ✓ | Scale 1-10 |
+| `energy_level` | Integer | ✓ | Scale 1-10 |
+| `weight_kg` | Decimal | ✗ | Optional daily weigh-in |
+| `waist_cm` | Decimal | ✗ | Optional measurement |
+| `meal_photo_url` | String | ✗ | S3/CDN URL |
+| `notes` | Text | ✗ | Client's free text |
+| `submitted_at` | Timestamp | ✓ | Actual submission time |
+| `reviewed_by_coach` | Boolean | ✓ | Default: false |
+| `reviewed_at` | Timestamp | ✗ | When coach reviewed |
+| `coach_notes` | Text | ✗ | Private coach notes |
+| `created_at` | Timestamp | ✓ | |
+
+**Why:**
+- `date` vs `submitted_at`: Date is for grouping, timestamp for late submissions
+- `reviewed_by_coach`: Powers the coach review queue
+- Optional fields allow quick 30-second logging
+
+**Indexes:**
+- `client_id, date` (unique – one check-in per day)
+- `client_id, reviewed_by_coach, date` (powers review queue)
+- `date` (for time-series queries)
+
+**Red Flag Logic** (application layer):
+- `energy_level < 4` → Flag
+- `hunger_level > 7` → Flag
+- Missing check-in for 2+ days → Flag
+
+---
+
+## Progress Tracking
+
+### 5. **progress_photos**
+*Visual progress tracking separate from check-ins*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `client_id` | UUID | ✓ | FK → `clients.id` |
+| `photo_url` | String | ✓ | S3/CDN URL (encrypted at rest) |
+| `photo_type` | Enum | ✓ | `front` \| `side` \| `back` |
+| `taken_at` | Timestamp | ✓ | When photo was taken |
+| `weight_kg` | Decimal | ✗ | Weight at time of photo |
+| `notes` | Text | ✗ | Client notes |
+| `visibility` | Enum | ✓ | `coach_only` \| `client_visible` |
+| `created_at` | Timestamp | ✓ | |
+
+**Why:**
+- Separate from check-ins: photos are less frequent
+- `visibility`: Client may want coach-only photos
+- `photo_type`: Enables before/after comparisons
+
+**Privacy:**
+- Encrypt URLs or use signed S3 URLs
+- PDPA requires explicit consent (tracked in `clients` table)
+
+**Indexes:**
+- `client_id, taken_at` (for chronological view)
+
+---
+
+### 6. **measurements**
+*Weekly/biweekly structured measurements*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `client_id` | UUID | ✓ | FK → `clients.id` |
+| `measured_at` | Date | ✓ | Measurement date |
+| `weight_kg` | Decimal | ✗ | |
+| `waist_cm` | Decimal | ✗ | |
+| `hip_cm` | Decimal | ✗ | |
+| `chest_cm` | Decimal | ✗ | |
+| `body_fat_pct` | Decimal | ✗ | If using InBody etc. |
+| `notes` | Text | ✗ | |
+| `created_at` | Timestamp | ✓ | |
+
+**Why:**
+- Structured measurements separate from daily check-ins
+- Enables charting and progress comparison
+- All measurements optional (flexibility)
+
+**Indexes:**
+- `client_id, measured_at` (for charts)
+
+---
+
+## Meal Plans
+
+### 7. **meal_plans**
+*Coach-created meal plan templates*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `coach_id` | UUID | ✓ | FK → `coaches.id` |
+| `name` | String | ✓ | E.g., "Week 1 – High Protein" |
+| `description` | Text | ✗ | Overview for coach |
+| `pdf_url` | String | ✗ | S3/CDN link to PDF |
+| `is_template` | Boolean | ✓ | Reusable template vs one-off |
+| `created_at` | Timestamp | ✓ | |
+| `updated_at` | Timestamp | ✓ | |
+
+**Why:**
+- Coaches can reuse templates across clients
+- PDF-first for MVP (easier for coaches to create)
+- `is_template`: Separates library from active assignments
+
+---
+
+### 8. **meal_plan_items**
+*Individual meals/days within a plan (optional for MVP)*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `meal_plan_id` | UUID | ✓ | FK → `meal_plans.id` |
+| `day_number` | Integer | ✓ | Day 1, 2, 3... |
+| `meal_type` | Enum | ✓ | `breakfast` \| `lunch` \| `dinner` \| `snack` |
+| `description` | Text | ✓ | E.g., "Grilled chicken + broccoli" |
+| `calories` | Integer | ✗ | |
+| `protein_g` | Integer | ✗ | |
+| `carbs_g` | Integer | ✗ | |
+| `fats_g` | Integer | ✗ | |
+
+**Why:**
+- Enables in-app meal plan viewing
+- Optional for MVP if coaches prefer PDFs
+- Can backfill later without schema changes
+
+**Constraints:**
+- `meal_plan_id, day_number, meal_type` (unique)
+
+---
+
+### 9. **client_meal_plans**
+*Assignment of meal plans to clients*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `client_id` | UUID | ✓ | FK → `clients.id` |
+| `meal_plan_id` | UUID | ✓ | FK → `meal_plans.id` |
+| `start_date` | Date | ✓ | When plan begins |
+| `end_date` | Date | ✗ | Optional expiry |
+| `status` | Enum | ✓ | `active` \| `completed` \| `replaced` |
+| `assigned_by_coach_id` | UUID | ✓ | FK → `coaches.id` |
+| `assigned_at` | Timestamp | ✓ | |
+
+**Why:**
+- Tracks meal plan history (important for review)
+- `status`: Allows replacing plans without deleting history
+- Client can have multiple plans over time
+
+**Indexes:**
+- `client_id, status` (to fetch active plan)
+
+---
+
+## Sessions & Billing
+
+### 10. **packages**
+*Session packages purchased by clients*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `client_id` | UUID | ✓ | FK → `clients.id` |
+| `total_sessions` | Integer | ✓ | E.g., 10 |
+| `used_sessions` | Integer | ✓ | Default: 0 |
+| `price_sgd` | Decimal | ✓ | In Singapore dollars |
+| `purchased_at` | Timestamp | ✓ | |
+| `expires_at` | Date | ✗ | Optional expiry |
+| `status` | Enum | ✓ | `active` \| `expired` \| `completed` |
+
+**Why:**
+- Simple package tracking for MVP
+- `used_sessions`: Decremented on session log
+- Stripe integration happens at purchase (not schema-level)
+
+**Business Logic:**
+- When `used_sessions >= total_sessions` → `status = completed`
+- When `expires_at < now()` → `status = expired`
+
+---
+
+### 11. **sessions**
+*Individual coaching session logs*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `client_id` | UUID | ✓ | FK → `clients.id` |
+| `package_id` | UUID | ✓ | FK → `packages.id` |
+| `coach_id` | UUID | ✓ | FK → `coaches.id` |
+| `session_date` | Timestamp | ✓ | When session occurred |
+| `duration_minutes` | Integer | ✗ | E.g., 60 |
+| `notes` | Text | ✗ | Coach notes |
+| `created_at` | Timestamp | ✓ | |
+
+**Why:**
+- Tracks session usage against packages
+- `notes`: Persistent session record
+- Links to specific package for billing clarity
+
+**Indexes:**
+- `client_id, session_date` (for history view)
+- `package_id` (to calculate `used_sessions`)
+
+---
+
+### 12. **payments**
+*Payment records for compliance and history*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `client_id` | UUID | ✓ | FK → `clients.id` |
+| `package_id` | UUID | ✗ | FK → `packages.id` (if applicable) |
+| `amount_sgd` | Decimal | ✓ | Amount in SGD |
+| `currency` | String | ✓ | Always `SGD` for MVP |
+| `payment_method` | Enum | ✓ | `stripe` \| `paynow` \| `cash` \| `bank_transfer` |
+| `stripe_payment_intent_id` | String | ✗ | Stripe reference |
+| `status` | Enum | ✓ | `pending` \| `completed` \| `failed` \| `refunded` |
+| `paid_at` | Timestamp | ✗ | When payment confirmed |
+| `notes` | Text | ✗ | E.g., "PayNow ref: 123456" |
+| `created_at` | Timestamp | ✓ | |
+
+**Why:**
+- Supports multiple payment methods (Stripe + local SG methods)
+- `stripe_payment_intent_id`: Links to Stripe webhooks
+- `notes`: Captures offline payment details
+
+**Compliance:**
+- Required for PDPA (financial records retention)
+- Audit trail for disputes
+
+---
+
+## Messaging & Automation
+
+### 13. **messages**
+*In-app messages between coach and client*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `client_id` | UUID | ✓ | FK → `clients.id` |
+| `sender_id` | UUID | ✓ | FK → `users.id` |
+| `content` | Text | ✓ | Message body |
+| `message_type` | Enum | ✓ | `manual` \| `automated` |
+| `sent_via` | Enum | ✓ | `in_app` \| `whatsapp` |
+| `whatsapp_message_id` | String | ✗ | For WhatsApp API tracking |
+| `read_at` | Timestamp | ✗ | When recipient read it |
+| `created_at` | Timestamp | ✓ | |
+
+**Why:**
+- Unified message log for in-app + WhatsApp
+- `message_type`: Differentiates automation from human
+- `sent_via`: Tracks channel for analytics
+
+**Privacy:**
+- Messages older than 90 days can be archived (PDPA)
+
+**Indexes:**
+- `client_id, created_at` (for conversation view)
+
+---
+
+### 14. **automated_message_rules**
+*Automation triggers for coach efficiency*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `coach_id` | UUID | ✓ | FK → `coaches.id` |
+| `trigger_type` | Enum | ✓ | `daily_reminder` \| `missed_checkin` \| `low_energy` \| `high_hunger` |
+| `message_template` | Text | ✓ | E.g., "Hey {name}, don't forget your check-in!" |
+| `send_via` | Enum | ✓ | `whatsapp` \| `in_app` \| `both` |
+| `is_active` | Boolean | ✓ | Default: true |
+| `trigger_time` | Time | ✗ | E.g., "20:00" for daily reminder |
+| `created_at` | Timestamp | ✓ | |
+| `updated_at` | Timestamp | ✓ | |
+
+**Why:**
+- Coaches can customize automation per their style
+- `{name}`, `{coach_name}` placeholders for personalization
+- `is_active`: Turn off without deleting
+
+**Example Triggers:**
+- `daily_reminder` at 8 PM if no check-in today
+- `missed_checkin` after 2 days of no check-ins
+- `low_energy` when `energy_level < 4` for 3+ days
+
+---
+
+### 15. **notifications**
+*Push notifications and in-app alerts*
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `id` | UUID | ✓ | Primary key |
+| `user_id` | UUID | ✓ | FK → `users.id` |
+| `title` | String | ✓ | Notification title |
+| `body` | Text | ✓ | Notification body |
+| `notification_type` | Enum | ✓ | `check_in_reminder` \| `red_flag` \| `new_message` \| `new_meal_plan` |
+| `reference_id` | UUID | ✗ | E.g., `check_in.id` or `message.id` |
+| `read_at` | Timestamp | ✗ | |
+| `created_at` | Timestamp | ✓ | |
+
+**Why:**
+- Separate from messages for in-app notifications
+- `reference_id`: Deep linking to relevant screen
+- Powers coach "unread alerts" count
+
+**Indexes:**
+- `user_id, read_at` (for unread count)
+
+---
+
+## Relationships Summary
+
+```mermaid
+erDiagram
+    users ||--o| coaches : "is"
+    users ||--o| clients : "is"
+    coaches ||--o{ clients : "manages"
+    clients ||--o{ check_ins : "submits"
+    clients ||--o{ progress_photos : "uploads"
+    clients ||--o{ measurements : "records"
+    clients ||--o{ packages : "purchases"
+    clients ||--o{ sessions : "attends"
+    clients ||--o{ payments : "makes"
+    clients ||--o{ messages : "sends/receives"
+    clients ||--o{ client_meal_plans : "assigned"
+    coaches ||--o{ meal_plans : "creates"
+    coaches ||--o{ automated_message_rules : "configures"
+    meal_plans ||--o{ meal_plan_items : "contains"
+    meal_plans ||--o{ client_meal_plans : "assigned to"
+    packages ||--o{ sessions : "tracks"
+    packages ||--o| payments : "paid via"
+    users ||--o{ notifications : "receives"
+```
+
+---
+
+## Indexes & Performance
+
+**Critical indexes for coach review queue:**
+```sql
+CREATE INDEX idx_checkins_review_queue 
+ON check_ins(client_id, reviewed_by_coach, date DESC);
+
+CREATE INDEX idx_clients_coach_status 
+ON clients(coach_id, status);
+```
+
+**For client dashboard:**
+```sql
+CREATE INDEX idx_checkins_client_timeline 
+ON check_ins(client_id, date DESC);
+
+CREATE INDEX idx_progress_photos_timeline 
+ON progress_photos(client_id, taken_at DESC);
+```
+
+---
+
+## MVP Quick Wins
+
+**Start with these tables:**
+1. ✅ `users`, `coaches`, `clients` (auth + roles)
+2. ✅ `check_ins` (core feature)
+3. ✅ `meal_plans`, `client_meal_plans` (without items – PDF-only)
+4. ✅ `packages`, `sessions` (basic billing)
+5. ✅ `messages` (in-app only, defer WhatsApp)
+
+**Phase 2 additions:**
+- `progress_photos`, `measurements` (once check-ins stable)
+- `meal_plan_items` (if coaches want in-app view)
+- `automated_message_rules` (after manual messaging works)
+- `payments` (when Stripe integration is ready)
+
+---
+
+## Privacy & Compliance (Singapore PDPA)
+
+| Requirement | Implementation |
+|-------------|----------------|
+| **Consent** | `clients.consent_whatsapp`, `consent_data_processing` |
+| **Data minimization** | All sensitive fields marked optional |
+| **Right to erasure** | Cascade delete on `clients` or anonymization script |
+| **Data retention** | Archive `messages` > 90 days, `check_ins` > 1 year |
+| **Encryption** | Hash passwords (bcrypt), encrypt `progress_photos` URLs, HTTPS only |
+
+---
+
+## What's NOT in this schema (intentionally deferred)
+
+- ❌ **Multi-coach businesses**: One coach per app instance for MVP
+- ❌ **Client self-signup**: Coach invites clients (manual onboarding)
+- ❌ **Exercise/workout logging**: Focus on nutrition + check-ins first
+- ❌ **Social features**: No client-to-client interaction
+- ❌ **Advanced analytics**: Basic charts only (can query from existing data)
+
+---
+
+## Next Steps
+
+Once you approve this schema:
+1. **Tech stack recommendation** (backend, DB, mobile framework)
+2. **Screen-by-screen data flows** (what queries power each view)
+3. **Red flag logic specification** (exact rules for automation)
+4. **WhatsApp integration architecture** (webhook handling, message sync)
+
+**Questions to consider:**
+- Do you want clients to self-signup, or coach-invite only?
+- Should meal plans support recurring schedules (e.g., "Week 1-4 repeat")?
+- Any specific compliance requirements beyond PDPA?

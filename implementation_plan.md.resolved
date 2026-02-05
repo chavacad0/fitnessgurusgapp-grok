@@ -1,0 +1,933 @@
+# Implementation Plan – Fitness Coaching App MVP
+
+> [!IMPORTANT]
+> This plan covers database setup, seeding, API contracts, and core feature implementation in priority order.
+
+---
+
+## Phase 1: Database Setup
+
+### Step 1.1: Create Core Tables
+
+**Priority order (dependencies first):**
+
+```sql
+-- 1. Users (auth foundation)
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  phone VARCHAR(20) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  role VARCHAR(20) NOT NULL CHECK (role IN ('coach', 'client')),
+  name VARCHAR(255) NOT NULL,
+  avatar_url TEXT,
+  timezone VARCHAR(50) NOT NULL DEFAULT 'Asia/Singapore',
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_phone ON users(phone);
+CREATE INDEX idx_users_role ON users(role);
+
+-- 2. Coaches
+CREATE TABLE coaches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  business_name VARCHAR(255),
+  whatsapp_number VARCHAR(20) NOT NULL,
+  stripe_account_id VARCHAR(255),
+  onboarding_complete BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- 3. Clients (with subscription tracking)
+CREATE TABLE clients (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  coach_id UUID NOT NULL REFERENCES coaches(id),
+  status VARCHAR(20) NOT NULL CHECK (status IN ('active', 'paused', 'inactive', 'payment_overdue')),
+  subscription_status VARCHAR(20) NOT NULL CHECK (subscription_status IN ('trial', 'active', 'past_due', 'cancelled')),
+  subscription_start_date DATE NOT NULL,
+  subscription_end_date DATE,
+  paid_until DATE NOT NULL,
+  billing_cycle VARCHAR(20) NOT NULL CHECK (billing_cycle IN ('weekly', 'monthly', 'quarterly', 'one_time')),
+  monthly_fee_sgd DECIMAL(10, 2),
+  start_date DATE NOT NULL,
+  target_weight_kg DECIMAL(5, 2),
+  target_waist_cm DECIMAL(5, 2),
+  daily_step_goal INTEGER,
+  birthday DATE,
+  consent_whatsapp BOOLEAN NOT NULL,
+  consent_data_processing BOOLEAN NOT NULL,
+  onboarding_complete BOOLEAN NOT NULL DEFAULT false,
+  invited_by_coach_id UUID NOT NULL REFERENCES coaches(id),
+  coach_override_access BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_clients_coach_status ON clients(coach_id, status);
+CREATE INDEX idx_clients_coach_subscription ON clients(coach_id, subscription_status);
+CREATE INDEX idx_clients_paid_until ON clients(paid_until);
+
+-- 4. Invitations
+CREATE TABLE invitations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  coach_id UUID NOT NULL REFERENCES coaches(id),
+  email VARCHAR(255) NOT NULL,
+  phone VARCHAR(20),
+  token VARCHAR(255) UNIQUE NOT NULL,
+  status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'accepted', 'expired')),
+  expires_at TIMESTAMP NOT NULL,
+  accepted_at TIMESTAMP,
+  client_id UUID REFERENCES clients(id),
+  initial_package_type VARCHAR(20),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX idx_invitations_token ON invitations(token);
+CREATE INDEX idx_invitations_coach_status ON invitations(coach_id, status);
+CREATE INDEX idx_invitations_email ON invitations(email);
+
+-- 5. Check-ins
+CREATE TABLE check_ins (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  steps INTEGER NOT NULL,
+  hunger_level INTEGER NOT NULL CHECK (hunger_level BETWEEN 1 AND 10),
+  energy_level INTEGER NOT NULL CHECK (energy_level BETWEEN 1 AND 10),
+  weight_kg DECIMAL(5, 2),
+  waist_cm DECIMAL(5, 2),
+  meal_photo_url TEXT,
+  notes TEXT,
+  submitted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  reviewed_by_coach BOOLEAN NOT NULL DEFAULT false,
+  reviewed_at TIMESTAMP,
+  coach_notes TEXT,
+  has_red_flag BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  UNIQUE(client_id, date)
+);
+
+CREATE INDEX idx_checkins_review_queue ON check_ins(client_id, reviewed_by_coach, date DESC);
+CREATE INDEX idx_checkins_red_flags ON check_ins(client_id, has_red_flag, date DESC);
+
+-- 6. Packages (with updated fields)
+CREATE TABLE packages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  package_type VARCHAR(20) NOT NULL CHECK (package_type IN ('silver', 'gold', 'platinum', 'custom')),
+  total_sessions INTEGER NOT NULL,
+  used_sessions INTEGER NOT NULL DEFAULT 0,
+  duration_days INTEGER NOT NULL,
+  price_sgd DECIMAL(10, 2) NOT NULL,
+  purchased_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  expires_at DATE NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'expired', 'completed')),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_packages_client_status ON packages(client_id, status);
+CREATE INDEX idx_packages_expires_at ON packages(expires_at);
+
+-- 7. Sessions
+CREATE TABLE sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  package_id UUID NOT NULL REFERENCES packages(id),
+  coach_id UUID NOT NULL REFERENCES coaches(id),
+  session_date TIMESTAMP NOT NULL,
+  duration_minutes INTEGER,
+  notes TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_sessions_client_date ON sessions(client_id, session_date DESC);
+CREATE INDEX idx_sessions_package ON sessions(package_id);
+
+-- 8. Payments
+CREATE TABLE payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  package_id UUID REFERENCES packages(id),
+  amount_sgd DECIMAL(10, 2) NOT NULL,
+  currency VARCHAR(3) NOT NULL DEFAULT 'SGD',
+  payment_method VARCHAR(20) NOT NULL CHECK (payment_method IN ('stripe', 'paynow', 'cash', 'bank_transfer')),
+  stripe_payment_intent_id VARCHAR(255),
+  status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'completed', 'failed', 'refunded')),
+  paid_at TIMESTAMP,
+  notes TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_payments_client ON payments(client_id, created_at DESC);
+```
+
+### Step 1.2: Apply Row-Level Security (PostgreSQL)
+
+```sql
+-- Enable RLS on all client-sensitive tables
+ALTER TABLE check_ins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE packages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
+
+-- Clients can only see their own data
+CREATE POLICY client_check_ins_policy ON check_ins
+  FOR SELECT
+  USING (client_id IN (SELECT id FROM clients WHERE user_id = current_setting('app.user_id')::uuid));
+
+CREATE POLICY client_packages_policy ON packages
+  FOR SELECT
+  USING (client_id IN (SELECT id FROM clients WHERE user_id = current_setting('app.user_id')::uuid));
+
+-- Coaches can see all their clients' data
+CREATE POLICY coach_check_ins_policy ON check_ins
+  FOR ALL
+  USING (client_id IN (
+    SELECT c.id FROM clients c
+    JOIN coaches co ON co.id = c.coach_id
+    WHERE co.user_id = current_setting('app.user_id')::uuid
+  ));
+
+CREATE POLICY coach_packages_policy ON packages
+  FOR ALL
+  USING (client_id IN (
+    SELECT c.id FROM clients c
+    JOIN coaches co ON co.id = c.coach_id
+    WHERE co.user_id = current_setting('app.user_id')::uuid
+  ));
+```
+
+---
+
+## Phase 2: Seed Data
+
+### Step 2.1: Create Default Coach Account
+
+```sql
+-- Insert coach user
+INSERT INTO users (id, email, phone, password_hash, role, name, timezone)
+VALUES (
+  '00000000-0000-0000-0000-000000000001',
+  'coach@fitnessprac.sg',
+  '+6591234567',
+  '$2b$12$...[HASHED_PASSWORD]',  -- Hash 'changeme123' or generate
+  'coach',
+  'Coach Marcus',
+  'Asia/Singapore'
+);
+
+-- Insert coach profile
+INSERT INTO coaches (id, user_id, business_name, whatsapp_number, onboarding_complete)
+VALUES (
+  '00000000-0000-0000-0000-000000000002',
+  '00000000-0000-0000-0000-000000000001',
+  'Peak Performance SG',
+  '+6591234567',
+  true
+);
+```
+
+### Step 2.2: Seed Standard Package Templates (Optional Reference Data)
+
+```sql
+-- Create a reference table for package templates (optional)
+CREATE TABLE package_templates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(50) NOT NULL,
+  package_type VARCHAR(20) NOT NULL,
+  sessions INTEGER NOT NULL,
+  duration_days INTEGER NOT NULL,
+  price_sgd DECIMAL(10, 2) NOT NULL,
+  description TEXT
+);
+
+INSERT INTO package_templates (name, package_type, sessions, duration_days, price_sgd, description) VALUES
+  ('Silver Package', 'silver', 10, 30, 300.00, 'Light coaching - 1-2 sessions per week'),
+  ('Gold Package', 'gold', 20, 60, 550.00, 'Regular coaching - 2-3 sessions per week'),
+  ('Platinum Package', 'platinum', 30, 90, 750.00, 'Intensive coaching - 3-4 sessions per week');
+```
+
+### Step 2.3: Create First Test Client
+
+```sql
+-- Insert test client user
+INSERT INTO users (id, email, phone, password_hash, role, name, timezone)
+VALUES (
+  '00000000-0000-0000-0000-000000000003',
+  'client@test.sg',
+  '+6598765432',
+  '$2b$12$...[HASHED_PASSWORD]',
+  'client',
+  'Alice Tan',
+  'Asia/Singapore'
+);
+
+-- Insert client profile
+INSERT INTO clients (
+  id, user_id, coach_id, status, subscription_status,
+  subscription_start_date, paid_until, billing_cycle,
+  start_date, consent_whatsapp, consent_data_processing,
+  onboarding_complete, invited_by_coach_id
+)
+VALUES (
+  '00000000-0000-0000-0000-000000000004',
+  '00000000-0000-0000-0000-000000000003',
+  '00000000-0000-0000-0000-000000000002',  -- Coach Marcus
+  'active',
+  'active',
+  CURRENT_DATE,
+  CURRENT_DATE + INTERVAL '30 days',  -- 30 days from now
+  'monthly',
+  CURRENT_DATE,
+  true,
+  true,
+  true,
+  '00000000-0000-0000-0000-000000000002'
+);
+
+-- Assign a Gold package to test client
+INSERT INTO packages (client_id, package_type, total_sessions, duration_days, price_sgd, expires_at)
+VALUES (
+  '00000000-0000-0000-0000-000000000004',
+  'gold',
+  20,
+  60,
+  550.00,
+  CURRENT_DATE + INTERVAL '60 days'
+);
+```
+
+---
+
+## Phase 3: Core API Endpoints
+
+### 3.1: Authentication
+
+#### `POST /api/auth/login`
+
+**Request:**
+```json
+{
+  "email": "client@test.sg",
+  "password": "password123"
+}
+```
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "user": {
+    "id": "uuid",
+    "email": "client@test.sg",
+    "name": "Alice Tan",
+    "role": "client"
+  },
+  "client": {
+    "id": "uuid",
+    "subscription_status": "active",
+    "paid_until": "2026-03-06",
+    "onboarding_complete": true
+  },
+  "access_token": "jwt_token_here"
+}
+```
+
+**Response (Overdue - within grace):**
+```json
+{
+  "success": true,
+  "warning": "payment_overdue",
+  "message": "Your payment is overdue. Please contact your coach.",
+  "days_overdue": 3,
+  "user": { ... },
+  "access_token": "jwt_token_here"
+}
+```
+
+**Response (Locked - beyond grace):**
+```json
+{
+  "success": false,
+  "error": "access_expired",
+  "message": "Your access has expired. Please contact your coach to renew."
+}
+```
+
+**Backend Logic:**
+```javascript
+// Pseudo-code
+async function login(email, password) {
+  const user = await findUserByEmail(email);
+  if (!user || !verifyPassword(password, user.password_hash)) {
+    return { success: false, error: 'invalid_credentials' };
+  }
+
+  if (user.role === 'client') {
+    const client = await findClientByUserId(user.id);
+    
+    // Check access rules
+    const gracePeriodEnd = addDays(client.paid_until, 7);
+    const now = new Date();
+    
+    if (client.subscription_status === 'cancelled') {
+      return { success: false, error: 'subscription_cancelled' };
+    }
+    
+    if (!client.coach_override_access && now > gracePeriodEnd) {
+      return { success: false, error: 'access_expired' };
+    }
+    
+    const isOverdue = now > client.paid_until;
+    const warning = isOverdue ? {
+      warning: 'payment_overdue',
+      days_overdue: Math.floor((now - client.paid_until) / 86400000)
+    } : {};
+    
+    return {
+      success: true,
+      ...warning,
+      user: sanitizeUser(user),
+      client: sanitizeClient(client),
+      access_token: generateJWT(user)
+    };
+  }
+  
+  // Coach login (simplified)
+  return { success: true, user, access_token: generateJWT(user) };
+}
+```
+
+---
+
+### 3.2: Invitation Flow
+
+#### `POST /api/invitations` (Coach only)
+
+**Request:**
+```json
+{
+  "email": "newclient@example.sg",
+  "phone": "+6512345678",
+  "initial_package_type": "gold"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "invitation": {
+    "id": "uuid",
+    "email": "newclient@example.sg",
+    "token": "abc123xyz",
+    "invite_link": "https://app.fitnessprac.sg/join/abc123xyz",
+    "expires_at": "2026-02-11T00:37:01+08:00"
+  }
+}
+```
+
+**Backend:**
+```sql
+INSERT INTO invitations (coach_id, email, phone, token, expires_at, status, initial_package_type)
+VALUES (:coach_id, :email, :phone, gen_random_uuid(), NOW() + INTERVAL '7 days', 'pending', :package_type)
+RETURNING *;
+```
+
+#### `POST /api/invitations/:token/accept`
+
+**Request:**
+```json
+{
+  "name": "Bob Lee",
+  "password": "securepass123",
+  "birthday": "1990-05-15",
+  "consent_whatsapp": true,
+  "consent_data_processing": true
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Account created successfully!",
+  "user": {
+    "id": "uuid",
+    "email": "newclient@example.sg",
+    "name": "Bob Lee"
+  },
+  "next_step": "onboarding"
+}
+```
+
+**Backend Logic:**
+```javascript
+async function acceptInvitation(token, data) {
+  // 1. Validate invitation
+  const invitation = await db.query(
+    'SELECT * FROM invitations WHERE token = $1 AND status = $2 AND expires_at > NOW()',
+    [token, 'pending']
+  );
+  
+  if (!invitation) {
+    return { success: false, error: 'invalid_or_expired_token' };
+  }
+  
+  // 2. Create user
+  const hashedPassword = await bcrypt.hash(data.password, 12);
+  const user = await db.query(
+    `INSERT INTO users (email, phone, password_hash, role, name)
+     VALUES ($1, $2, $3, 'client', $4) RETURNING *`,
+    [invitation.email, invitation.phone, hashedPassword, data.name]
+  );
+  
+  // 3. Create client
+  const client = await db.query(
+    `INSERT INTO clients (
+      user_id, coach_id, status, subscription_status,
+      subscription_start_date, paid_until, billing_cycle,
+      start_date, birthday, consent_whatsapp, consent_data_processing,
+      invited_by_coach_id
+    ) VALUES ($1, $2, 'active', 'active', NOW(), NOW() + INTERVAL '30 days',
+              'monthly', NOW(), $3, $4, $5, $6) RETURNING *`,
+    [user.id, invitation.coach_id, data.birthday, data.consent_whatsapp,
+     data.consent_data_processing, invitation.coach_id]
+  );
+  
+  // 4. Mark invitation accepted
+  await db.query(
+    `UPDATE invitations SET status = 'accepted', accepted_at = NOW(), client_id = $1
+     WHERE id = $2`,
+    [client.id, invitation.id]
+  );
+  
+  // 5. Create initial package if specified
+  if (invitation.initial_package_type) {
+    const packageConfig = PACKAGE_CONFIGS[invitation.initial_package_type];
+    await createPackage(client.id, packageConfig);
+  }
+  
+  return { success: true, user, client };
+}
+```
+
+---
+
+### 3.3: Check-In Flow
+
+#### `POST /api/check-ins` (Client only)
+
+**Request:**
+```json
+{
+  "date": "2026-02-04",
+  "steps": 8500,
+  "hunger_level": 5,
+  "energy_level": 7,
+  "weight_kg": 72.5,
+  "waist_cm": 82.0,
+  "meal_photo_url": "https://s3.../photo.jpg",
+  "notes": "Felt great today!"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "check_in": {
+    "id": "uuid",
+    "date": "2026-02-04",
+    "steps": 8500,
+    "hunger_level": 5,
+    "energy_level": 7,
+    "has_red_flag": false,
+    "submitted_at": "2026-02-04T23:45:00+08:00"
+  }
+}
+```
+
+**Backend Logic:**
+```javascript
+async function submitCheckIn(clientId, data) {
+  // 1. Validate one check-in per day
+  const existing = await db.query(
+    'SELECT id FROM check_ins WHERE client_id = $1 AND date = $2',
+    [clientId, data.date]
+  );
+  
+  if (existing) {
+    // Update instead of insert
+    return updateCheckIn(existing.id, data);
+  }
+  
+  // 2. Detect red flags
+  const hasRedFlag = data.energy_level < 4 || data.hunger_level > 7;
+  
+  // 3. Insert check-in
+  const checkIn = await db.query(
+    `INSERT INTO check_ins (
+      client_id, date, steps, hunger_level, energy_level,
+      weight_kg, waist_cm, meal_photo_url, notes, has_red_flag
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+    [clientId, data.date, data.steps, data.hunger_level, data.energy_level,
+     data.weight_kg, data.waist_cm, data.meal_photo_url, data.notes, hasRedFlag]
+  );
+  
+  // 4. Create coach notification if red flag
+  if (hasRedFlag) {
+    await createCoachNotification(clientId, checkIn.id, 'red_flag_detected');
+  }
+  
+  return { success: true, check_in: checkIn };
+}
+```
+
+#### `GET /api/coach/review-queue` (Coach only)
+
+**Response:**
+```json
+{
+  "success": true,
+  "unreviewed_count": 5,
+  "check_ins": [
+    {
+      "id": "uuid",
+      "client_id": "uuid",
+      "client_name": "Alice Tan",
+      "date": "2026-02-04",
+      "steps": 3200,
+      "hunger_level": 8,
+      "energy_level": 3,
+      "has_red_flag": true,
+      "red_flag_type": ["high_hunger", "low_energy"],
+      "submitted_at": "2026-02-04T22:00:00+08:00"
+    },
+    // ... more check-ins
+  ]
+}
+```
+
+**Backend:**
+```sql
+SELECT 
+  ci.id,
+  ci.client_id,
+  u.name AS client_name,
+  ci.date,
+  ci.steps,
+  ci.hunger_level,
+  ci.energy_level,
+  ci.has_red_flag,
+  ARRAY_REMOVE(ARRAY[
+    CASE WHEN ci.energy_level < 4 THEN 'low_energy' END,
+    CASE WHEN ci.hunger_level > 7 THEN 'high_hunger' END
+  ], NULL) AS red_flag_types,
+  ci.submitted_at
+FROM check_ins ci
+JOIN clients c ON c.id = ci.client_id
+JOIN users u ON u.id = c.user_id
+WHERE c.coach_id = :coach_id
+  AND ci.reviewed_by_coach = false
+  AND ci.date >= CURRENT_DATE - INTERVAL '7 days'
+ORDER BY ci.has_red_flag DESC, ci.date DESC;
+```
+
+#### `PATCH /api/check-ins/:id/review` (Coach only)
+
+**Request:**
+```json
+{
+  "coach_notes": "Great progress, keep it up!",
+  "send_message": false
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "check_in": {
+    "id": "uuid",
+    "reviewed_by_coach": true,
+    "reviewed_at": "2026-02-04T23:50:00+08:00"
+  }
+}
+```
+
+**Backend:**
+```sql
+UPDATE check_ins
+SET reviewed_by_coach = true,
+    reviewed_at = NOW(),
+    coach_notes = :notes
+WHERE id = :check_in_id
+RETURNING *;
+```
+
+---
+
+### 3.4: Session & Package Management
+
+#### `POST /api/sessions` (Coach only)
+
+**Request:**
+```json
+{
+  "client_id": "uuid",
+  "session_date": "2026-02-04T10:00:00+08:00",
+  "duration_minutes": 60,
+  "notes": "Focused on lower body strength"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "session": {
+    "id": "uuid",
+    "client_id": "uuid",
+    "package_id": "uuid",
+    "session_date": "2026-02-04T10:00:00+08:00",
+    "created_at": "2026-02-04T12:00:00+08:00"
+  },
+  "package_updated": {
+    "id": "uuid",
+    "used_sessions": 5,
+    "total_sessions": 20,
+    "remaining_sessions": 15
+  }
+}
+```
+
+**Backend Logic:**
+```javascript
+async function logSession(coachId, data) {
+  // 1. Find active package
+  const package = await db.query(
+    `SELECT * FROM packages
+     WHERE client_id = $1
+       AND status = 'active'
+       AND used_sessions < total_sessions
+       AND expires_at >= CURRENT_DATE
+     ORDER BY purchased_at ASC
+     LIMIT 1`,
+    [data.client_id]
+  );
+  
+  if (!package) {
+    return { success: false, error: 'no_active_package' };
+  }
+  
+  // 2. Create session record
+  const session = await db.query(
+    `INSERT INTO sessions (client_id, package_id, coach_id, session_date, duration_minutes, notes)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [data.client_id, package.id, coachId, data.session_date, data.duration_minutes, data.notes]
+  );
+  
+  // 3. Increment used_sessions
+  const updatedPackage = await db.query(
+    `UPDATE packages
+     SET used_sessions = used_sessions + 1
+     WHERE id = $1
+     RETURNING *`,
+    [package.id]
+  );
+  
+  // 4. Mark as completed if all sessions used
+  if (updatedPackage.used_sessions >= updatedPackage.total_sessions) {
+    await db.query(`UPDATE packages SET status = 'completed' WHERE id = $1`, [package.id]);
+  }
+  
+  return {
+    success: true,
+    session,
+    package_updated: {
+      id: updatedPackage.id,
+      used_sessions: updatedPackage.used_sessions,
+      total_sessions: updatedPackage.total_sessions,
+      remaining_sessions: updatedPackage.total_sessions - updatedPackage.used_sessions
+    }
+  };
+}
+```
+
+#### `POST /api/packages` (Coach only - assign new package)
+
+**Request:**
+```json
+{
+  "client_id": "uuid",
+  "package_type": "gold",
+  "payment_amount": 550.00,
+  "payment_method": "paynow"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "package": {
+    "id": "uuid",
+    "package_type": "gold",
+    "total_sessions": 20,
+    "duration_days": 60,
+    "expires_at": "2026-04-05"
+  },
+  "payment": {
+    "id": "uuid",
+    "amount_sgd": 550.00,
+    "status": "completed"
+  }
+}
+```
+
+**Backend:**
+```javascript
+async function assignPackage(coachId, data) {
+  const packageConfig = {
+    silver: { sessions: 10, days: 30, price: 300 },
+    gold: { sessions: 20, days: 60, price: 550 },
+    platinum: { sessions: 30, days: 90, price: 750 }
+  }[data.package_type];
+  
+  // 1. Create package
+  const package = await db.query(
+    `INSERT INTO packages (
+      client_id, package_type, total_sessions, duration_days,
+      price_sgd, expires_at
+    ) VALUES ($1, $2, $3, $4, $5, CURRENT_DATE + $4 * INTERVAL '1 day')
+    RETURNING *`,
+    [data.client_id, data.package_type, packageConfig.sessions,
+     packageConfig.days, packageConfig.price]
+  );
+  
+  // 2. Record payment
+  const payment = await db.query(
+    `INSERT INTO payments (
+      client_id, package_id, amount_sgd, payment_method, status, paid_at
+    ) VALUES ($1, $2, $3, $4, 'completed', NOW())
+    RETURNING *`,
+    [data.client_id, package.id, data.payment_amount, data.payment_method]
+  );
+  
+  // 3. Extend paid_until
+  await db.query(
+    `UPDATE clients
+     SET paid_until = GREATEST(paid_until, CURRENT_DATE) + $1 * INTERVAL '1 day',
+         subscription_status = 'active',
+         coach_override_access = false
+     WHERE id = $2`,
+    [packageConfig.days, data.client_id]
+  );
+  
+  return { success: true, package, payment };
+}
+```
+
+---
+
+## Phase 4: Automated Jobs
+
+### Job 4.1: Update Subscription Status (Daily)
+
+**Runs:** Every day at 00:00 SGT
+
+**Logic:**
+```sql
+-- Mark clients as past_due when paid_until expires
+UPDATE clients
+SET subscription_status = 'past_due',
+    status = 'payment_overdue'
+WHERE paid_until < CURRENT_DATE
+  AND subscription_status = 'active'
+  AND coach_override_access = false;
+
+-- Expire old packages
+UPDATE packages
+SET status = 'expired'
+WHERE expires_at < CURRENT_DATE
+  AND status = 'active';
+```
+
+### Job 4.2: Send Payment Reminders (Daily)
+
+**Runs:** Every day at 09:00 SGT
+
+**Logic:**
+```javascript
+// Send reminder 7 days before expiry
+const clientsDue = await db.query(`
+  SELECT c.id, u.name, u.phone, c.paid_until
+  FROM clients c
+  JOIN users u ON u.id = c.user_id
+  WHERE c.paid_until = CURRENT_DATE + INTERVAL '7 days'
+    AND c.subscription_status = 'active'
+`);
+
+for (const client of clientsDue) {
+  await sendWhatsAppMessage(client.phone, 
+    `Hi ${client.name}, your subscription renews in 7 days (${client.paid_until}). ` +
+    `Please contact me to arrange payment. - Coach`
+  );
+}
+```
+
+---
+
+## Summary: Implementation Order
+
+### Week 1: Foundation
+- [ ] Set up database (PostgreSQL)
+- [ ] Create all tables + indexes
+- [ ] Apply RLS policies
+- [ ] Seed coach + test client
+- [ ] Build auth endpoints (login, JWT)
+
+### Week 2: Core Features
+- [ ] Invitation flow (create, accept)
+- [ ] Check-in submission
+- [ ] Coach review queue
+- [ ] Access control validation (paid_until + grace)
+
+### Week 3: Sessions & Packages
+- [ ] Package assignment
+- [ ] Session logging + deduction
+- [ ] Payment recording
+- [ ] Dashboard queries
+
+### Week 4: Automation & Polish
+- [ ] Red flag detection
+- [ ] Automated jobs (subscription updates, reminders)
+- [ ] Coach override toggle
+- [ ] Testing + bug fixes
+
+---
+
+## API Summary Table
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/api/auth/login` | POST | Public | Login with access validation |
+| `/api/invitations` | POST | Coach | Create invitation |
+| `/api/invitations/:token/accept` | POST | Public | Accept invitation + signup |
+| `/api/check-ins` | POST | Client | Submit daily check-in |
+| `/api/check-ins` | GET | Client | Get own check-in history |
+| `/api/coach/review-queue` | GET | Coach | Get unreviewed check-ins |
+| `/api/check-ins/:id/review` | PATCH | Coach | Mark check-in reviewed |
+| `/api/sessions` | POST | Coach | Log completed session |
+| `/api/packages` | POST | Coach | Assign new package to client |
+| `/api/clients/:id` | GET | Coach | Get client details + package status |
+| `/api/clients/:id/override-access` | PATCH | Coach | Toggle coach override |
+
+---
+
+**Next:** Begin implementation with database setup, then build auth + invitation flow first.

@@ -1,0 +1,7 @@
+export async function runDailyReminders(date: string) {
+  // 1. fetch active clients
+  // 2. filter no check-in for today
+  // 3. check access rules
+  // 4. find daily reminder rules
+  // 5. send notification (console for now)
+}
