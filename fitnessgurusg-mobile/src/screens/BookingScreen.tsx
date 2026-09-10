@@ -1830,19 +1830,20 @@ export default function BookingScreen() {
                 contentContainerStyle={[s.listContent, { paddingBottom: insets.bottom + 120 }]}
                 sections={sections}
                 keyExtractor={(item, index) => {
-                    // Cast to the three possible item shapes in this list
-                    const i = item as OpenSlot & Booking & BlockedSlot;
+                    // Use the SectionItem union (OpenSlot | Booking | BlockedSlot)
+                    // and probe for properties safely via 'in' checks.
+                    const i = item as SectionItem;
 
                     // Preferred order: use the most stable unique ID available,
                     // then fall back to a composite of type + date + times + index.
                     // The section key prefix (open|booked|blocked) prevents cross-
                     // section collisions when two sections share similar time strings.
                     const base =
-                        i.id             ??   // generic id field (future-proofing)
-                        i._id            ??   // MongoDB ObjectId string
-                        i.availability_id??   // explicit availability id
-                        i.booking_id     ??   // booking unique id
-                        i.slot_id;           // time-based slot id (e.g. "open-09:00")
+                        ('id'              in i ? (i as any).id              : undefined) ??
+                        ('_id'             in i ? (i as any)._id             : undefined) ??
+                        ('availability_id' in i ? (i as any).availability_id : undefined) ??
+                        ('booking_id'      in i ? (i as any).booking_id      : undefined) ??
+                        ('slot_id'         in i ? (i as any).slot_id         : undefined);
 
                     if (base) {
                         // Prefix with index so duplicate slot_ids (two DB windows
@@ -1851,10 +1852,11 @@ export default function BookingScreen() {
                     }
 
                     // Ultimate fallback: stable composite key
-                    const type   = i.kind   ?? i.status   ?? 'item';
-                    const date   = (i as any).date        ?? '';
-                    const start  = i.start_time           ?? '';
-                    const end    = i.end_time             ?? '';
+                    const type   = ('kind'       in i ? i.kind       : undefined) ??
+                                   ('status'     in i ? (i as any).status : undefined) ?? 'item';
+                    const date   = ('date'       in i ? (i as any).date       : '');
+                    const start  = ('start_time' in i ? (i as any).start_time : '');
+                    const end    = ('end_time'   in i ? (i as any).end_time   : '');
                     return `${type}-${date}-${start}-${end}-${index}`;
                 }}
                 stickySectionHeadersEnabled
