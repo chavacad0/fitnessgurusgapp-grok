@@ -3,7 +3,7 @@ import { getClientsWithoutCheckIn } from "./repositories/clientRepo";
 import { runDailyReminders } from "./services/dailyReminderService";
 
 // Initialize database with test data
-const db = new Database("local-db/database.db");
+const db = new Database("../../local-db/database.db");
 
 console.log("🧪 Setting up test data...\n");
 

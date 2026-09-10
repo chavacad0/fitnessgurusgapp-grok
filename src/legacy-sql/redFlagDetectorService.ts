@@ -1,6 +1,6 @@
-import db from '../local-db/init';
-import { clientRepo } from '../repositories/clientRepo';
-import { notificationRepo } from '../repositories/notificationRepo';
+import db from '../../local-db/init';
+import { clientRepo } from './clientRepo';
+import { notificationRepo } from './notificationRepo';
 
 export class RedFlagDetectorService {
     /**

@@ -1,26 +1,50 @@
 {
-    "name": "fitnessprac-local",
-    "version": "1.0.0",
-    "description": "Local-first fitness coaching app",
-    "main": "src/test-db.ts",
-    "scripts": {
-        "test": "tsx src/test-db.ts",
-        "dev": "tsx watch src/test-mongo.ts",
-        "db:reset": "rm -f local-db/database.db && tsx local-db/init.ts"
-    },
-    "keywords": [
-        "fitness",
-        "coaching"
-    ],
-    "author": "",
-    "license": "ISC",
-    "devDependencies": {
-        "@types/node": "^25.2.0",
-        "tsx": "^4.21.0",
-        "typescript": "^5.9.3"
-    },
-    "dependencies": {
-        "dotenv": "^17.2.3",
-        "mongodb": "^7.1.0"
-    }
+  "name": "fitnessprac-local",
+  "version": "1.0.0",
+  "description": "Local-first fitness coaching app",
+  "main": "src/test-db.ts",
+  "scripts": {
+    "test": "tsx src/test-mongo.ts",
+    "test:legacy-sql": "tsx src/legacy-sql/test-db.ts",
+    "dev": "tsx watch src/server.ts",
+    "db:reset": "rm -f local-db/database.db && tsx local-db/init.ts",
+    "test:redflags": "tsx src/scripts/test-redflags.ts",
+    "server": "tsx src/server.ts",
+    "server:dev": "tsx watch src/server.ts",
+    "seed": "tsx src/seeds/seed-mongo.ts",
+    "seed:clear": "tsx src/scripts/clear-seed-clients.ts",
+    "seed:clear:confirm": "tsx src/scripts/clear-seed-clients.ts --confirm"
+  },
+  "keywords": [
+    "fitness",
+    "coaching"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.2.0",
+    "@types/react": "~19.1.10",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@types/multer": "^2.1.0",
+    "@types/uuid": "^10.0.0",
+    "axios": "^1.15.0",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.3.1",
+    "firebase": "^12.11.0",
+    "google-auth-library": "^10.6.2",
+    "jsonwebtoken": "^9.0.3",
+    "mongodb": "^7.1.0",
+    "multer": "^2.1.1",
+    "uuid": "^13.0.0"
+  }
 }

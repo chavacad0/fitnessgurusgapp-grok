@@ -1,4 +1,4 @@
-import { getDb } from '../db/mongo';
+import db from '../../local-db/init';
 import { Client } from '../types';
 
 export async function getActiveClients(): Promise<Client[]> {

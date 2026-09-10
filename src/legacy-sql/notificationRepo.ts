@@ -1,4 +1,4 @@
-import db from '../local-db/init';
+import db from '../../local-db/init';
 
 export interface Notification {
     id?: string;

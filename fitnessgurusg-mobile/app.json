@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "FitnessGuruSG",
+    "slug": "fitnessgurusg-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "scheme": "fitnessgurusg",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fitnessgurusg.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "FitnessGuruSG uses your camera to upload progress photos for your coach.",
+        "NSPhotoLibraryUsageDescription": "FitnessGuruSG accesses your photo library so you can share progress photos with your coach."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.fitnessgurusg.app"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-web-browser",
+      "expo-image-picker",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.961130275460-1rj803iqu53dlf1lgs9hujf0qc45j4cr"
+        }
+      ]
+    ]
+  }
+}

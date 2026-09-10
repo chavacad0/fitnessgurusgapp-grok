@@ -1,3 +1,19 @@
+/**
+ * ⚠️  LEGACY TEST SCRIPT — DO NOT RUN IN PRODUCTION ⚠️
+ *
+ * This script uses FAKE data that is INCOMPATIBLE with the real data model:
+ *
+ *   coach_id: 'coach-1'  ← NOT a real MongoDB ObjectId.
+ *                           No coach document has _id === 'coach-1'.
+ *                           Clients inserted with this coach_id will be INVISIBLE
+ *                           to the real coach dashboard (which filters by real ObjectId).
+ *
+ * If you need test data, use src/seeds/seed-mongo.ts instead.
+ * That script uses findSingleCoach() to get the real coach ObjectId before inserting clients.
+ *
+ * This file is kept for legacy reference only. Running it against the production
+ * database will corrupt client records that cannot be seen by any coach.
+ */
 import { getDb, closeDb } from './db/mongo';
 import { runDailyReminders } from './services/mongoDailyReminderService';
 
