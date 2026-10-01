@@ -2,11 +2,15 @@
 
 ```
 /Users/admin/Fitnessprac/
-├── schema.sql                      # Main database schema (run first)
-├── invites.sql                     # Client invite system  
-├── storage.sql                     # Storage buckets & policies
-├── SUPABASE_SETUP.md              # Complete setup guide
-├── database_schema.md.resolved     # Frozen v1 schema (reference)
+├── docs/
+│   ├── database/
+│   │   ├── schema.sql              # Main database schema (run first)
+│   │   ├── invites.sql             # Client invite system
+│   │   └── storage.sql             # Storage buckets & policies
+│   ├── setup/
+│   │   └── SUPABASE_SETUP.md      # Complete setup guide
+│   └── product/
+│       └── database_schema.md.resolved  # Frozen v1 schema (reference)
 └── supabase/
     └── functions/
         ├── README.md              # Edge Functions deployment guide
@@ -26,9 +30,9 @@
 
 ### 2. Run SQL Migrations
 In Supabase SQL Editor, run in order:
-1. `schema.sql` - Core database
-2. `invites.sql` - Invite system
-3. `storage.sql` - File storage
+1. `docs/database/schema.sql` - Core database
+2. `docs/database/invites.sql` - Invite system
+3. `docs/database/storage.sql` - File storage
 
 ### 3. Deploy Edge Functions
 ```bash
@@ -48,7 +52,7 @@ Run the cron job SQL from `supabase/functions/README.md` to schedule:
 - Red flag detection every 6 hours
 
 ### 5. Create Storage Buckets
-Buckets are created via SQL in `storage.sql`:
+Buckets are created via SQL in `docs/database/storage.sql`:
 - `meal-photos` (private)
 - `progress-photos` (private)
 - `meal-plan-pdfs` (private)
@@ -120,7 +124,7 @@ Buckets are created via SQL in `storage.sql`:
 
 ## Code Examples
 
-All code examples are in `SUPABASE_SETUP.md`:
+All code examples are in `docs/setup/SUPABASE_SETUP.md`:
 - User signup (coach & client)
 - Check-in creation
 - File uploads
@@ -130,6 +134,6 @@ All code examples are in `SUPABASE_SETUP.md`:
 ## Questions?
 
 Refer to:
-1. `SUPABASE_SETUP.md` - Setup & API examples
+1. `docs/setup/SUPABASE_SETUP.md` - Setup & API examples
 2. `supabase/functions/README.md` - Edge Functions deployment
-3. `database_schema.md.resolved` - Original schema documentation
+3. `docs/product/database_schema.md.resolved` - Original schema documentation

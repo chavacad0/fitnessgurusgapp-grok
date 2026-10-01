@@ -73,6 +73,16 @@ export interface Client {
      * who prefer custom labels.
      */
     training_experience?: 'beginner' | 'intermediate' | 'advanced' | string;
+
+    // ── Body measurements (cm) — optional tape-measure values ─────────────
+    /** Neck circumference in cm */
+    neck_cm?: number;
+    /** Chest / bust circumference in cm */
+    chest_cm?: number;
+    /** Waist circumference in cm */
+    waist_cm?: number;
+    /** Hips circumference in cm */
+    hips_cm?: number;
 }
 
 /**

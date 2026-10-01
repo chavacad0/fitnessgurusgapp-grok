@@ -493,7 +493,8 @@ router.patch('/clients/me/bookings/:bookingId/cancel', clientAuthMiddleware, asy
  * Protected: client JWT required.
  *
  * Response shape:
- *   { success, profile: { height_cm, weight_kg, fitness_goal, injuries_notes, training_experience } }
+ *   { success, profile: { height_cm, weight_kg, fitness_goal, injuries_notes, training_experience,
+ *                         neck_cm, chest_cm, waist_cm, hips_cm } }
  *
  * All profile fields are optional — they will be null/undefined if never set.
  */
@@ -516,6 +517,10 @@ router.get('/clients/me/profile', clientAuthMiddleware, async (req: Request, res
                 fitness_goal:        client.fitness_goal        ?? null,
                 injuries_notes:      client.injuries_notes      ?? null,
                 training_experience: client.training_experience ?? null,
+                neck_cm:             client.neck_cm             ?? null,
+                chest_cm:            client.chest_cm            ?? null,
+                waist_cm:            client.waist_cm            ?? null,
+                hips_cm:             client.hips_cm             ?? null,
             },
         });
     } catch (error: any) {
@@ -537,6 +542,10 @@ router.get('/clients/me/profile', clientAuthMiddleware, async (req: Request, res
  *   fitness_goal?:        string
  *   injuries_notes?:      string
  *   training_experience?: string
+ *   neck_cm?:             number   — neck circumference in cm
+ *   chest_cm?:            number   — chest/bust circumference in cm
+ *   waist_cm?:            number   — waist circumference in cm
+ *   hips_cm?:             number   — hips circumference in cm
  *
  * Safety:
  *  - email is NOT accepted — it is an auth identity field, not updatable here.
@@ -556,6 +565,10 @@ router.patch('/clients/me/profile', clientAuthMiddleware, async (req: Request, r
         fitness_goal,
         injuries_notes,
         training_experience,
+        neck_cm,
+        chest_cm,
+        waist_cm,
+        hips_cm,
     } = req.body as {
         name?:                string;
         height_cm?:           number;
@@ -563,6 +576,10 @@ router.patch('/clients/me/profile', clientAuthMiddleware, async (req: Request, r
         fitness_goal?:        string;
         injuries_notes?:      string;
         training_experience?: string;
+        neck_cm?:             number;
+        chest_cm?:            number;
+        waist_cm?:            number;
+        hips_cm?:             number;
     };
 
     // ── Guard: email is an auth identity field — never updatable here ─────────
@@ -609,6 +626,22 @@ router.patch('/clients/me/profile', clientAuthMiddleware, async (req: Request, r
         }
     }
 
+    // ── Measurement field validation ────────────────────────────────────────
+    for (const [field, val] of [
+        ['neck_cm',  neck_cm],
+        ['chest_cm', chest_cm],
+        ['waist_cm', waist_cm],
+        ['hips_cm',  hips_cm],
+    ] as const) {
+        if (val !== undefined) {
+            const n = Number(val);
+            if (isNaN(n) || !isFinite(n) || n <= 0 || n > 300) {
+                res.status(400).json({ success: false, error: `${field} must be a positive number ≤ 300.` });
+                return;
+            }
+        }
+    }
+
     try {
         const found = await updateClientBodyProfile(clientId, {
             name:                name,
@@ -617,6 +650,10 @@ router.patch('/clients/me/profile', clientAuthMiddleware, async (req: Request, r
             fitness_goal:        fitness_goal,
             injuries_notes:      injuries_notes,
             training_experience: training_experience,
+            neck_cm:             neck_cm              !== undefined ? Number(neck_cm)  : undefined,
+            chest_cm:            chest_cm             !== undefined ? Number(chest_cm) : undefined,
+            waist_cm:            waist_cm             !== undefined ? Number(waist_cm) : undefined,
+            hips_cm:             hips_cm              !== undefined ? Number(hips_cm)  : undefined,
         });
 
         if (!found) {
@@ -820,7 +857,8 @@ async function requireClientOwnership(
  * Read-only — no write operation, no schema change.
  *
  * Returns:
- *   { success, profile: { height_cm, weight_kg, fitness_goal, injuries_notes, training_experience } }
+ *   { success, profile: { height_cm, weight_kg, fitness_goal, injuries_notes, training_experience,
+ *                         neck_cm, chest_cm, waist_cm, hips_cm } }
  *
  * Any unset field is returned as null.
  */
@@ -847,6 +885,10 @@ router.get('/clients/:clientId/profile', async (req: AuthenticatedRequest, res: 
                 fitness_goal:        client['fitness_goal']        ?? null,
                 injuries_notes:      client['injuries_notes']      ?? null,
                 training_experience: client['training_experience'] ?? null,
+                neck_cm:             client['neck_cm']             ?? null,
+                chest_cm:            client['chest_cm']            ?? null,
+                waist_cm:            client['waist_cm']            ?? null,
+                hips_cm:             client['hips_cm']             ?? null,
             },
         });
     } catch (error: any) {

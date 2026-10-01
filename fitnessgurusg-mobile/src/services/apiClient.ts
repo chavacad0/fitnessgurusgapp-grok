@@ -1219,6 +1219,11 @@ export interface ClientBodyProfile {
     fitness_goal:        string | null;
     injuries_notes:      string | null;
     training_experience: string | null;
+    // Body measurements (cm)
+    neck_cm:             number | null;
+    chest_cm:            number | null;
+    waist_cm:            number | null;
+    hips_cm:             number | null;
 }
 
 /**
@@ -1250,6 +1255,10 @@ export async function updateClientProfile(data: Partial<{
     fitness_goal:        string;
     injuries_notes:      string;
     training_experience: string;
+    neck_cm:             number;
+    chest_cm:            number;
+    waist_cm:            number;
+    hips_cm:             number;
 }>): Promise<{ success: boolean; message: string; name?: string }> {
     const headers  = await getAuthHeaders();
     const response = await fetch(`${BASE_URL}/api/clients/me/profile`, {

@@ -165,6 +165,11 @@ export async function updateClientBodyProfile(
         fitness_goal?:                string;
         injuries_notes?:              string;
         training_experience?:         string;
+        // Body measurements (cm)
+        neck_cm?:                     number;
+        chest_cm?:                    number;
+        waist_cm?:                    number;
+        hips_cm?:                     number;
         // Check-in preference fields
         check_in_reminders_enabled?:  boolean;
         check_in_status?:             'active' | 'paused';
@@ -181,6 +186,11 @@ export async function updateClientBodyProfile(
     if (data.fitness_goal        !== undefined) $set['fitness_goal']        = data.fitness_goal.trim();
     if (data.injuries_notes      !== undefined) $set['injuries_notes']      = data.injuries_notes.trim();
     if (data.training_experience !== undefined) $set['training_experience'] = data.training_experience.trim();
+    // Body measurements
+    if (data.neck_cm             !== undefined) $set['neck_cm']             = data.neck_cm;
+    if (data.chest_cm            !== undefined) $set['chest_cm']            = data.chest_cm;
+    if (data.waist_cm            !== undefined) $set['waist_cm']            = data.waist_cm;
+    if (data.hips_cm             !== undefined) $set['hips_cm']             = data.hips_cm;
     // Check-in preference fields
     if (data.check_in_reminders_enabled !== undefined) $set['check_in_reminders_enabled'] = data.check_in_reminders_enabled;
     if (data.check_in_status            !== undefined) $set['check_in_status']             = data.check_in_status;

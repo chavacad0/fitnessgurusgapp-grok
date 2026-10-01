@@ -18,6 +18,7 @@ import {
     updateClientProfile,
     ClientBodyProfile,
 } from '../../services/apiClient';
+import BodyMeasurementGuide from '../../components/BodyMeasurementGuide';
 
 /**
  * ClientProfileScreen
@@ -62,6 +63,9 @@ export default function ClientProfileScreen() {
     const [nameEditing, setNameEditing] = useState(false);
     const [nameInput,   setNameInput]   = useState('');
     const [nameSaving,  setNameSaving]  = useState(false);
+
+    // ── Measurement save state ────────────────────────────────────────────────
+    const [measurementSaving, setMeasurementSaving] = useState(false);
 
     // ── Body-profile edit buffer ──────────────────────────────────────────────
     const [heightStr,    setHeightStr]    = useState('');
@@ -162,6 +166,22 @@ export default function ClientProfileScreen() {
             Alert.alert('Could not save name', err.message ?? 'Please try again.');
         } finally {
             setNameSaving(false);
+        }
+    };
+
+    // ── Save measurements ─────────────────────────────────────────────────────
+    const handleSaveMeasurements = async (
+        data: Partial<Record<string, number>>,
+    ) => {
+        setMeasurementSaving(true);
+        try {
+            await updateClientProfile(data as any);
+            await loadProfile();
+        } catch (err: any) {
+            Alert.alert('Could not save', err.message ?? 'Please try again.');
+            throw err; // rethrow so the child knows save failed
+        } finally {
+            setMeasurementSaving(false);
         }
     };
 
@@ -425,6 +445,20 @@ export default function ClientProfileScreen() {
                         <InfoRow label="Injuries"   value={profile?.injuries_notes      ?? 'Not set'} />
                         <InfoRow label="Experience" value={formatExperience(profile?.training_experience)} last />
                     </View>
+                )}
+
+                {/* ── Body Measurements section ── */}
+                {!loading && (
+                    <BodyMeasurementGuide
+                        values={{
+                            neck_cm:  profile?.neck_cm  ?? null,
+                            chest_cm: profile?.chest_cm ?? null,
+                            waist_cm: profile?.waist_cm ?? null,
+                            hips_cm:  profile?.hips_cm  ?? null,
+                        }}
+                        onSave={handleSaveMeasurements}
+                        saving={measurementSaving}
+                    />
                 )}
 
                 {/* ── App section ── */}

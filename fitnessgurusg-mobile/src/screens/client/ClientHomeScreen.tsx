@@ -39,12 +39,13 @@ import { submitCheckIn, uploadSingleCheckInPhoto, getTodayWorkout, submitWorkout
 import { BASE_URL }                          from '../../config/api';
 import { NutritionData, WorkoutAssignment, WorkoutLog, ExerciseLog, WorkoutHistoryEntry } from '../../types';
 import { colors, spacing, radius, typography, componentSize, shadows } from '../../theme/theme';
+import RatingRow from '../../components/RatingRow';
+import NutritionCard from '../../components/NutritionCard';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const TODAY      = new Date().toISOString().split('T')[0];
 const MAX_PHOTOS = 3;
-const RATINGS    = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 
 type SubmitState = 'idle' | 'loading' | 'success' | 'error';
 
@@ -104,7 +105,10 @@ function PhotoPicker({ photoUrls, uploadingCount, onAdd, onRemove }: PhotoPicker
 
     return (
         <View style={s.card}>
-            <Text style={s.cardLabel}>📸 Progress Photos</Text>
+            <View style={s.cardLabelRow}>
+                <Ionicons name="camera-outline" size={16} color={colors.accent} />
+                <Text style={s.cardLabel}>Progress Photos</Text>
+            </View>
             <Text style={s.cardDesc}>Optional — up to {MAX_PHOTOS} photos</Text>
 
             {(photoUrls.length > 0 || isUploading) && (
@@ -166,138 +170,7 @@ const ph = StyleSheet.create({
     addLabel:     { ...typography.label, color: colors.accent },
 });
 
-// ─── Nutrition Card ───────────────────────────────────────────────────────────
-
-function NutritionField({
-    label, unit, placeholder, value, onChange,
-}: {
-    label:       string;
-    unit:        string;
-    placeholder: string;
-    value:       string;
-    onChange:    (v: string) => void;
-}) {
-    return (
-        <View style={nf.wrap}>
-            <Text style={nf.label}>{label}</Text>
-            <View style={nf.row}>
-                <TextInput
-                    style={nf.input}
-                    placeholder={placeholder}
-                    placeholderTextColor={colors.placeholder}
-                    value={value}
-                    onChangeText={onChange}
-                    keyboardType="numeric"
-                    maxLength={6}
-                />
-                <Text style={nf.unit}>{unit}</Text>
-            </View>
-        </View>
-    );
-}
-
-const nf = StyleSheet.create({
-    wrap:  { flex: 1, minWidth: '45%' },
-    label: { ...typography.micro, color: colors.textSecondary, fontWeight: '700', marginBottom: 4, letterSpacing: 0.3 },
-    row:   { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    input: { flex: 1, height: 42, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, ...typography.body, color: colors.textPrimary },
-    unit:  { ...typography.caption, color: colors.textSecondary, minWidth: 24 },
-});
-
-function MacroBar({ protein, carbs, fat }: { protein: number; carbs: number; fat: number }) {
-    const total = protein * 4 + carbs * 4 + fat * 9;
-    if (total === 0) return null;
-    const pPct = Math.round((protein * 4 / total) * 100);
-    const cPct = Math.round((carbs * 4 / total) * 100);
-    const fPct = 100 - pPct - cPct;
-    return (
-        <View style={mb.wrap}>
-            <View style={mb.bar}>
-                <View style={[mb.seg, { width: `${pPct}%` as any, backgroundColor: '#0E6B64' }]} />
-                <View style={[mb.seg, { width: `${cPct}%` as any, backgroundColor: '#F59E0B' }]} />
-                <View style={[mb.seg, { width: `${fPct}%` as any, backgroundColor: '#EF4444' }]} />
-            </View>
-            <View style={mb.legend}>
-                <Text style={[mb.legendTxt, { color: '#0E6B64' }]}>Protein {pPct}%</Text>
-                <Text style={[mb.legendTxt, { color: '#F59E0B' }]}>Carbs {cPct}%</Text>
-                <Text style={[mb.legendTxt, { color: '#EF4444' }]}>Fat {fPct}%</Text>
-            </View>
-        </View>
-    );
-}
-
-const mb = StyleSheet.create({
-    wrap:      { marginTop: spacing.xs, marginBottom: spacing.sm },
-    bar:       { flexDirection: 'row', height: 8, borderRadius: radius.pill, backgroundColor: colors.border },
-    seg:       { height: '100%' },
-    legend:    { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
-    legendTxt: { fontSize: 10, fontWeight: '600' },
-});
-
-interface NutritionCardProps {
-    calories: string; onCalories: (v: string) => void;
-    protein:  string; onProtein:  (v: string) => void;
-    carbs:    string; onCarbs:    (v: string) => void;
-    fat:      string; onFat:      (v: string) => void;
-}
-
-function NutritionCard(props: NutritionCardProps) {
-    const [open, setOpen] = useState(false);
-    const hasAny = props.calories || props.protein || props.carbs || props.fat;
-
-    return (
-        <View style={nc.card}>
-            <TouchableOpacity
-                style={nc.header}
-                onPress={() => setOpen(o => !o)}
-                activeOpacity={0.75}
-                accessibilityRole="button"
-            >
-                <View style={{ flex: 1 }}>
-                    <Text style={nc.title}>🥗 Nutrition today</Text>
-                    <Text style={nc.subtitle}>
-                        {hasAny
-                            ? [
-                                props.calories && `${props.calories} kcal`,
-                                props.protein  && `${props.protein}g protein`,
-                              ].filter(Boolean).join(' · ')
-                            : 'Optional — tap to log calories & macros'}
-                    </Text>
-                </View>
-                <Text style={nc.chevron}>{open ? '▲' : '▼'}</Text>
-            </TouchableOpacity>
-
-            {open && (
-                <View style={nc.body}>
-                    <View style={nc.row}>
-                        <NutritionField label="CALORIES" unit="kcal" placeholder="e.g. 2000" value={props.calories} onChange={props.onCalories} />
-                        <NutritionField label="PROTEIN"  unit="g"    placeholder="e.g. 150"  value={props.protein}  onChange={props.onProtein}  />
-                    </View>
-                    <View style={nc.row}>
-                        <NutritionField label="CARBS" unit="g" placeholder="e.g. 250" value={props.carbs} onChange={props.onCarbs} />
-                        <NutritionField label="FAT"   unit="g" placeholder="e.g. 70"  value={props.fat}   onChange={props.onFat}   />
-                    </View>
-                    <MacroBar
-                        protein={parseFloat(props.protein) || 0}
-                        carbs={parseFloat(props.carbs) || 0}
-                        fat={parseFloat(props.fat) || 0}
-                    />
-                </View>
-            )}
-        </View>
-    );
-}
-
-const nc = StyleSheet.create({
-    // NOTE: no overflow:'hidden' here — would block touches on child Touchables
-    card:     { backgroundColor: colors.surface, borderRadius: radius.card, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.base, ...shadows.card },
-    header:   { flexDirection: 'row', alignItems: 'center', padding: spacing.base, gap: spacing.sm },
-    title:    { ...typography.label, color: colors.textPrimary, marginBottom: 2 },
-    subtitle: { ...typography.caption, color: colors.textSecondary },
-    chevron:  { fontSize: 10, color: colors.placeholder },
-    body:     { paddingHorizontal: spacing.base, paddingBottom: spacing.base, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
-    row:      { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
-});
+// NutritionCard, NutritionField, MacroBar → extracted to ../../components/NutritionCard.tsx
 
 // ─── Today's Workout Card ─────────────────────────────────────────────────────
 //
@@ -859,120 +732,7 @@ function getTimeOfDay(): string {
     return 'evening';
 }
 
-// ─── Inline Rating Picker ─────────────────────────────────────────────────────
-//
-// Rendered directly in the screen — no separate component file.
-// Critical style rules:
-//   • height: 40  (explicit — never aspectRatio:1 in a flex row)
-//   • minWidth: 0 (allows flex shrink in tight containers)
-//   • No overflow:'hidden' on parent View
-
-interface RatingRowProps {
-    label:       string;
-    question:    string;
-    value:       number;
-    onChange:    (n: number) => void;
-    accentColor: string;
-    lowLabel:    string;
-    highLabel:   string;
-}
-
-function RatingRow({ label, question, value, onChange, accentColor, lowLabel, highLabel }: RatingRowProps) {
-    return (
-        <View style={r.card}>
-            {/* Header: label + live badge */}
-            <View style={r.header}>
-                <View style={r.headerText}>
-                    <Text style={r.label}>{label}</Text>
-                    <Text style={r.question}>{question}</Text>
-                </View>
-                <View style={[r.badge, { borderColor: accentColor }]}>
-                    <Text style={[r.badgeValue, { color: accentColor }]}>{value}</Text>
-                    <Text style={r.badgeMax}>/10</Text>
-                </View>
-            </View>
-
-            {/* Button row — explicit height ensures real touch targets */}
-            <View style={r.row}>
-                {RATINGS.map(n => {
-                    const selected = n === value;
-                    return (
-                        <TouchableOpacity
-                            key={n}
-                            onPress={() => {
-                                console.log(`[CheckIn] ${label} selected:`, n);
-                                onChange(n);
-                            }}
-                            activeOpacity={0.65}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Rate ${n} out of 10`}
-                            accessibilityState={{ selected }}
-                            style={[
-                                r.btn,
-                                selected && { backgroundColor: accentColor, borderColor: accentColor },
-                            ]}
-                        >
-                            <Text style={[r.btnText, selected && r.btnTextSelected]}>
-                                {n}
-                            </Text>
-                        </TouchableOpacity>
-                    );
-                })}
-            </View>
-
-            {/* Axis labels */}
-            <View style={r.axis}>
-                <Text style={r.axisLabel}>{lowLabel}</Text>
-                <Text style={r.axisLabel}>{highLabel}</Text>
-            </View>
-        </View>
-    );
-}
-
-const r = StyleSheet.create({
-    card: {
-        backgroundColor: colors.surface,
-        borderRadius:    radius.card,
-        borderWidth:     1,
-        borderColor:     colors.border,
-        padding:         spacing.base,
-        marginBottom:    spacing.base,
-        ...shadows.card,
-        // ✓ NO overflow:'hidden' — would clip touch events
-    },
-    header:     { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: spacing.base },
-    headerText: { flex: 1, paddingRight: spacing.sm },
-    label:      { fontSize: 15, fontWeight: '700', color: colors.textPrimary, marginBottom: 2 },
-    question:   { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
-    badge: {
-        flexDirection:     'row',
-        alignItems:        'baseline',
-        borderWidth:       1.5,
-        borderRadius:      radius.md,
-        paddingHorizontal: spacing.sm,
-        paddingVertical:   3,
-        minWidth:          48,
-        justifyContent:    'center',
-    },
-    badgeValue: { fontSize: 20, fontWeight: '800', lineHeight: 24 },
-    badgeMax:   { fontSize: 11, color: colors.textSecondary, fontWeight: '600', marginLeft: 1 },
-    row:        { flexDirection: 'row', gap: 4 },
-    btn: {
-        flex:            1,
-        height:          40,   // ← explicit height, NEVER aspectRatio:1 in a flex row
-        minWidth:        0,    // ← allows proper shrink when 10 buttons share a row
-        borderRadius:    radius.md,
-        borderWidth:     1.5,
-        borderColor:     colors.border,
-        backgroundColor: colors.background,
-        alignItems:      'center',
-        justifyContent:  'center',
-    },
-    btnText:         { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
-    btnTextSelected: { color: '#FFFFFF' },
-    axis:      { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs },
-    axisLabel: { fontSize: 11, color: colors.textSecondary },
-});
+// RatingRow → extracted to ../../components/RatingRow.tsx
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
@@ -1237,7 +997,7 @@ export default function ClientHomeScreen() {
         return (
             <View style={s.centered}>
                 <View style={s.successIcon}>
-                    <Text style={s.successCheck}>✓</Text>
+                    <Ionicons name="checkmark-circle" size={40} color="#059669" />
                 </View>
                 <Text style={s.successHeading}>You're all logged in.</Text>
                 <Text style={s.successBody}>
@@ -1245,7 +1005,8 @@ export default function ClientHomeScreen() {
                     Your coach can see your check-in.
                 </Text>
                 <Text style={s.successCaption}>Come back tomorrow.</Text>
-                <TouchableOpacity style={s.resetBtn} onPress={resetForm}>
+                <TouchableOpacity style={s.resetBtn} onPress={resetForm} activeOpacity={0.75}>
+                    <Ionicons name="create-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
                     <Text style={s.resetLabel}>Edit today's check-in</Text>
                 </TouchableOpacity>
             </View>
@@ -1335,16 +1096,24 @@ export default function ClientHomeScreen() {
                         {'  ·  DAILY CHECK-IN'}
                     </Text>
                     <Text style={s.greeting}>
-                        Good {getTimeOfDay()}, {user?.name?.split(' ')[0] ?? 'there'} 👋
+                        Good {getTimeOfDay()}, {user?.name?.split(' ')[0] ?? 'there'}
                     </Text>
-                    <Text style={s.sub}>Quick check-in — how are you doing today?</Text>
+                    <Text style={s.sub}>
+                        {missedStreak === 0
+                            ? "You're on track. Quick check-in below."
+                            : 'Quick check-in — how are you doing today?'}
+                    </Text>
                 </View>
 
                 {/* ── Wellbeing ─────────────────────────────────────────────── */}
-                <Text style={s.sectionLabel}>Wellbeing</Text>
+                <View style={s.sectionRow}>
+                    <View style={s.sectionAccent} />
+                    <Ionicons name="heart-outline" size={15} color={colors.textSecondary} />
+                    <Text style={s.sectionLabel}>Wellbeing</Text>
+                </View>
 
                 <RatingRow
-                    label="⚡ Energy"
+                    label="Energy"
                     question="How's your energy right now?"
                     value={energy}
                     onChange={setEnergy}
@@ -1355,7 +1124,7 @@ export default function ClientHomeScreen() {
 
                 {/* UI label is "Appetite," but API field remains `hunger` for backward compatibility. */}
                 <RatingRow
-                    label="🍽 Appetite"
+                    label="Appetite"
                     question="How hungry or snacky do you feel today?"
                     value={hunger}
                     onChange={setHunger}
@@ -1365,10 +1134,17 @@ export default function ClientHomeScreen() {
                 />
 
                 {/* ── Activity ──────────────────────────────────────────────── */}
-                <Text style={s.sectionLabel}>Activity</Text>
+                <View style={s.sectionRow}>
+                    <View style={s.sectionAccent} />
+                    <Ionicons name="fitness-outline" size={15} color={colors.textSecondary} />
+                    <Text style={s.sectionLabel}>Activity</Text>
+                </View>
 
                 <View style={s.card}>
-                    <Text style={s.cardLabel}>👟 Steps today</Text>
+                    <View style={s.cardLabelRow}>
+                        <Ionicons name="footsteps-outline" size={16} color={colors.accent} />
+                        <Text style={s.cardLabel}>Steps today</Text>
+                    </View>
                     <TextInput
                         style={s.input}
                         placeholder="Optional — e.g. 8,500"
@@ -1388,7 +1164,11 @@ export default function ClientHomeScreen() {
                 />
 
                 {/* ── Workout ─────────────────────────────────────────────────────── */}
-                <Text style={s.sectionLabel}>Workout</Text>
+                <View style={s.sectionRow}>
+                    <View style={s.sectionAccent} />
+                    <Ionicons name="barbell-outline" size={15} color={colors.textSecondary} />
+                    <Text style={s.sectionLabel}>Workout</Text>
+                </View>
                 <TodayWorkoutCard
                     assignment={workoutAssignment}
                     savedLog={savedWorkoutLog}
@@ -1402,10 +1182,17 @@ export default function ClientHomeScreen() {
                 />
 
                 {/* ── Extra ─────────────────────────────────────────────────── */}
-                <Text style={s.sectionLabel}>Extra</Text>
+                <View style={s.sectionRow}>
+                    <View style={s.sectionAccent} />
+                    <Ionicons name="chatbubble-outline" size={15} color={colors.textSecondary} />
+                    <Text style={s.sectionLabel}>Notes & Photos</Text>
+                </View>
 
                 <View style={s.card}>
-                    <Text style={s.cardLabel}>💬 Note for your coach</Text>
+                    <View style={s.cardLabelRow}>
+                        <Ionicons name="chatbubble-outline" size={16} color={colors.accent} />
+                        <Text style={s.cardLabel}>Note for your coach</Text>
+                    </View>
                     <TextInput
                         style={[s.input, s.textArea]}
                         placeholder="Sleep, energy, stress, soreness — anything on your mind."
@@ -1425,14 +1212,19 @@ export default function ClientHomeScreen() {
                     onRemove={handleRemovePhoto}
                 />
 
-                {/* ── Error ─────────────────────────────────────────────────── */}
+                {/* Bottom spacer — makes room for sticky submit bar */}
+                <View style={{ height: 100 }} />
+
+            </ScrollView>
+
+            {/* ── Sticky Submit Bar ────────────────────────────────────── */}
+            <View style={s.stickyBar}>
                 {submitState === 'error' && errorMsg ? (
                     <View style={s.errorBanner}>
                         <Text style={s.errorText}>{errorMsg}</Text>
                     </View>
                 ) : null}
 
-                {/* ── Submit ────────────────────────────────────────────────── */}
                 <TouchableOpacity
                     style={[s.submitBtn, (isSubmitting || hasPhotosInFlight) && s.submitDisabled]}
                     onPress={handleSubmit}
@@ -1459,8 +1251,7 @@ export default function ClientHomeScreen() {
                 </TouchableOpacity>
 
                 <Text style={s.submitCaption}>Your coach will review this shortly.</Text>
-
-            </ScrollView>
+            </View>
         </KeyboardAvoidingView>
     );
 }
@@ -1479,20 +1270,32 @@ const s = StyleSheet.create({
     sub:      { ...typography.body, color: colors.textSecondary },
 
     // ── Section labels ────────────────────────────────────────────────────────
+    // ── Section rows ──────────────────────────────────────────────────────────
+    sectionRow: {
+        flexDirection:  'row',
+        alignItems:     'center',
+        gap:            spacing.sm,
+        marginBottom:   spacing.md,
+        marginTop:      spacing.base,
+    },
+    sectionAccent: {
+        width:          3,
+        height:         16,
+        borderRadius:   2,
+        backgroundColor: colors.accent,
+    },
     sectionLabel: {
-        fontSize:      11,
+        fontSize:      13,
         fontWeight:    '700',
         color:         colors.textSecondary,
-        letterSpacing: 0.8,
-        marginBottom:  spacing.sm,
-        marginTop:     spacing.xs,
-        paddingLeft:   2,
+        letterSpacing: 0.5,
     },
 
     // ── Cards ─────────────────────────────────────────────────────────────────
     // NOTE: no overflow:'hidden' — would clip TouchableOpacity children
     card:      { backgroundColor: colors.surface, borderRadius: radius.card, borderWidth: 1, borderColor: colors.border, padding: spacing.base, marginBottom: spacing.base, ...shadows.card },
-    cardLabel: { ...typography.label, color: colors.textPrimary, marginBottom: 2 },
+    cardLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+    cardLabel: { ...typography.label, color: colors.textPrimary },
     cardDesc:  { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.xs },
 
     // ── Inputs ────────────────────────────────────────────────────────────────
@@ -1500,31 +1303,42 @@ const s = StyleSheet.create({
     textArea: { height: 100, paddingTop: spacing.sm },
 
     // ── Error ─────────────────────────────────────────────────────────────────
-    errorBanner: { backgroundColor: colors.errorBg, borderWidth: 1, borderColor: colors.errorBorder, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.base },
+    errorBanner: { backgroundColor: colors.errorBg, borderWidth: 1, borderColor: colors.errorBorder, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm },
     errorText:   { ...typography.label, color: colors.errorText, textAlign: 'center', fontWeight: '400' },
 
-    // ── Submit ────────────────────────────────────────────────────────────────
+    // ── Sticky Submit Bar ──────────────────────────────────────────────────────
+    stickyBar: {
+        position:          'absolute' as const,
+        bottom:            0,
+        left:              0,
+        right:             0,
+        backgroundColor:   colors.surface,
+        borderTopWidth:    1,
+        borderTopColor:    colors.border,
+        paddingHorizontal: spacing.base,
+        paddingTop:        spacing.md,
+        paddingBottom:     spacing.xxl,
+        ...shadows.cardElevated,
+    },
     submitBtn: {
         height:          56,
-        flexDirection:   'row',
+        flexDirection:   'row' as const,
         backgroundColor: colors.buttonPrimaryBg,
         borderRadius:    radius.card,
-        alignItems:      'center',
-        justifyContent:  'center',
-        marginTop:       spacing.xl,
+        alignItems:      'center' as const,
+        justifyContent:  'center' as const,
     },
     submitDisabled: { backgroundColor: colors.buttonDisabledBg },
     submitLabel:    { ...typography.bodyLg, color: colors.buttonPrimaryText, fontWeight: '700', letterSpacing: 0.2 },
-    submitCaption:  { ...typography.caption, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm, marginBottom: spacing.sm },
+    submitCaption:  { ...typography.caption, color: colors.textSecondary, textAlign: 'center' as const, marginTop: spacing.sm },
 
     // ── Success ───────────────────────────────────────────────────────────────
-    successIcon:    { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.successBg, borderWidth: 2, borderColor: colors.successBorder, justifyContent: 'center', alignItems: 'center', marginBottom: spacing.xl },
-    successCheck:   { fontSize: 32, color: '#059669' },
+    successIcon:    { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.successBg, borderWidth: 2, borderColor: colors.successBorder, justifyContent: 'center', alignItems: 'center', marginBottom: spacing.xl },
     successHeading: { ...typography.h2, color: colors.textPrimary, marginBottom: spacing.sm },
     successBody:    { ...typography.body, color: colors.textSecondary, textAlign: 'center', lineHeight: 24, marginBottom: spacing.xs },
-    successCaption: { ...typography.caption, color: colors.placeholder, textAlign: 'center', marginTop: spacing.xs },
-    resetBtn:       { paddingVertical: spacing.sm, paddingHorizontal: spacing.xl, marginTop: spacing.xl },
-    resetLabel:     { ...typography.label, color: colors.accent, textDecorationLine: 'underline' },
+    successCaption: { ...typography.caption, color: colors.textTertiary, textAlign: 'center', marginTop: spacing.xs },
+    resetBtn:       { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md, paddingHorizontal: spacing.xl, marginTop: spacing.xl, backgroundColor: colors.accentSubtle, borderRadius: radius.md },
+    resetLabel:     { ...typography.label, color: colors.accent },
 });
 
 // ─── Check-in Preference / Pause Styles ──────────────────────────────────────
