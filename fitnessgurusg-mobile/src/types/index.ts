@@ -34,6 +34,29 @@ export interface LoginResponse {
     coach: CoachPublic;
 }
 
+/**
+ * POST /api/auth/google response — discriminated by `role`.
+ *  - Coaches get the coach profile (sub = coaches._id).
+ *  - Clients get their canonical client record (sub = clients.id UUID).
+ *    No coach object is returned for clients.
+ */
+export type GoogleLoginResponse =
+    | { success: boolean; token: string; role: 'coach'; coach: CoachPublic; client?: undefined }
+    | {
+        success: boolean;
+        token:   string;
+        role:    'client';
+        coach?:  undefined;
+        client: {
+            _id:       string;   // MongoDB ObjectId of the clients document
+            id:        string;   // UUID — canonical client identifier
+            email:     string;
+            name:      string;
+            coach_id:  string | null;
+            has_coach: boolean;
+        };
+    };
+
 // ─── Coach ───────────────────────────────────────────────────────────────────
 
 export interface CoachPublic {

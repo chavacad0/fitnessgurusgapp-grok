@@ -35,22 +35,13 @@ import {
     getClientPayments,
     getCheckIns,
     getClientBodyProfile,
+    ClientBodyProfile,
 } from '../../services/apiClient';
 import { Payment, PlanStatus, SessionStatusResponse, CheckIn } from '../../types';
 import type { CoachStackParamList } from '../../navigation/CoachStackParamList';
 
 type NavProp       = NativeStackNavigationProp<CoachStackParamList, 'ClientPayments'>;
 type RoutePropType = RouteProp<CoachStackParamList, 'ClientPayments'>;
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface ClientBodyProfile {
-    height_cm:           number | null;
-    weight_kg:           number | null;
-    fitness_goal:        string | null;
-    injuries_notes:      string | null;
-    training_experience: string | null;
-}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -203,6 +194,60 @@ function BodyProfileCard({ profile, loading }: { profile: ClientBodyProfile | nu
                         <Text style={st.profileValueEmpty}>No injuries / notes on file</Text>
                     )}
                 </>
+            )}
+        </View>
+    );
+}
+
+// ─── Body Measurements section (read-only) ────────────────────────────────────
+
+function MeasurementRow({
+    label,
+    value,
+    isLast = false,
+}: {
+    label: string;
+    value: number | null | undefined;
+    isLast?: boolean;
+}) {
+    const hasValue = typeof value === 'number' && !isNaN(value);
+    return (
+        <View style={[st.measurementRow, isLast && st.measurementRowLast]}>
+            <Text style={st.measurementLabel}>{label}</Text>
+            <Text style={[st.measurementValue, !hasValue && st.profileValueEmpty]}>
+                {hasValue ? `${value} cm` : 'Not set'}
+            </Text>
+        </View>
+    );
+}
+
+function BodyMeasurementsCard({ profile, loading }: { profile: ClientBodyProfile | null; loading: boolean }) {
+    const hasAnyMeasurements = Boolean(
+        profile && (
+            profile.neck_cm != null ||
+            profile.chest_cm != null ||
+            profile.waist_cm != null ||
+            profile.hips_cm != null
+        )
+    );
+
+    return (
+        <View style={st.infoCard}>
+            <SLabel text="BODY MEASUREMENTS" />
+            {loading ? (
+                <ActivityIndicator color={colors.accent} size="small" style={{ marginVertical: spacing.sm }} />
+            ) : !hasAnyMeasurements ? (
+                <View style={st.emptyInline}>
+                    <Ionicons name="body-outline" size={18} color={colors.placeholder} />
+                    <Text style={st.emptyInlineText}>No body measurements recorded yet.</Text>
+                </View>
+            ) : (
+                <View style={st.measurementsList}>
+                    <MeasurementRow label="Neck" value={profile?.neck_cm} />
+                    <MeasurementRow label="Chest/Bust" value={profile?.chest_cm} />
+                    <MeasurementRow label="Waist" value={profile?.waist_cm} />
+                    <MeasurementRow label="Hips" value={profile?.hips_cm} isLast />
+                </View>
             )}
         </View>
     );
@@ -508,6 +553,9 @@ export default function ClientPaymentDashboardScreen() {
                         {/* ── 3. Body Profile ──────────────────────────────── */}
                         <BodyProfileCard profile={bodyProfile} loading={profileLoading} />
 
+                        {/* ── 3b. Body Measurements (read-only) ─────────────── */}
+                        <BodyMeasurementsCard profile={bodyProfile} loading={profileLoading} />
+
                         {/* ── 4. Latest Check-In ───────────────────────────── */}
                         <LatestCheckInCard checkin={latestCheckIn} loading={checkinLoading} />
 
@@ -637,6 +685,30 @@ const st = StyleSheet.create({
         marginTop:       spacing.xs,
     },
     injuriesText: { ...typography.caption, color: colors.amberText, flex: 1 },
+
+    // Body Measurements
+    measurementsList:   { marginTop: spacing.xs },
+    measurementRow: {
+        flexDirection:     'row',
+        justifyContent:    'space-between',
+        alignItems:        'center',
+        paddingVertical:   spacing.xs + 3,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.borderLight,
+    },
+    measurementRowLast: {
+        borderBottomWidth: 0,
+        paddingBottom:     0,
+    },
+    measurementLabel: {
+        fontSize:   13,
+        fontWeight: '500',
+        color:      colors.textSecondary,
+    },
+    measurementValue: {
+        ...typography.label,
+        color: colors.textPrimary,
+    },
 
     // Check-In
     checkinDate:      { ...typography.label, color: colors.textPrimary, marginBottom: spacing.sm },

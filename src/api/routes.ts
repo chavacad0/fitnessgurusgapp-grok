@@ -325,8 +325,19 @@ router.get('/clients/me/availability', clientAuthMiddleware, async (req: Request
         // Resolve the coach from the client document
         const db = await getDb();
         const clientDoc = await db.collection('clients').findOne({ id: clientId });
-        if (!clientDoc?.coach_id) {
-            res.status(404).json({ success: false, error: 'Client account data not found.' });
+        if (!clientDoc) {
+            res.status(404).json({ success: false, error: 'Client account not found. Please sign out and sign in again.' });
+            return;
+        }
+        if (!clientDoc.coach_id) {
+            // Valid client, not yet connected to a coach — onboarding state, not an error.
+            log('GET /clients/me/availability', `Client ${clientId} has no coach yet — returning onboarding state`);
+            res.json({
+                success:   true,
+                has_coach: false,
+                slots:     [],
+                message:   'Connect to your coach using an invitation code to view available sessions.',
+            });
             return;
         }
 
@@ -356,7 +367,7 @@ router.get('/clients/me/availability', clientAuthMiddleware, async (req: Request
             });
 
         log('GET /clients/me/availability', `✅ Returning ${openSlots.length} open slots`);
-        res.json({ success: true, slots: openSlots });
+        res.json({ success: true, has_coach: true, slots: openSlots });
     } catch (error: any) {
         logError('GET /clients/me/availability', error);
         res.status(500).json({ success: false, error: 'Failed to load available slots.' });
@@ -390,8 +401,16 @@ router.post('/clients/me/bookings', clientAuthMiddleware, async (req: Request, r
     try {
         const db = await getDb();
         const clientDoc = await db.collection('clients').findOne({ id: clientId });
-        if (!clientDoc?.coach_id) {
+        if (!clientDoc) {
             res.status(404).json({ success: false, error: 'Client account not found.' });
+            return;
+        }
+        if (!clientDoc.coach_id) {
+            res.status(400).json({
+                success:   false,
+                has_coach: false,
+                error:     'Please connect to your coach with an invitation code before booking a session.',
+            });
             return;
         }
 
@@ -754,6 +773,15 @@ router.post('/payments/client-create', clientAuthMiddleware, async (req: Request
         }
         if (!clientDoc.selected_plan_id) {
             res.status(400).json({ success: false, error: 'Please select a plan before paying.' });
+            return;
+        }
+        if (!clientDoc.coach_id) {
+            // A payment must be attributable to a coach — never create an orphaned payment.
+            res.status(400).json({
+                success:   false,
+                has_coach: false,
+                error:     'Please connect to your coach with an invitation code before purchasing a plan.',
+            });
             return;
         }
 

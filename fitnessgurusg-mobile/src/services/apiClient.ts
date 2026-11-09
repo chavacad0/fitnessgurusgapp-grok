@@ -12,6 +12,7 @@ import {
     CheckInResponse,
     RedFlag,
     LoginResponse,
+    GoogleLoginResponse,
     ClientLoginResponse,
     CoachAvailabilitySlot,
     BookingSlot,
@@ -316,12 +317,13 @@ export async function registerClient(params: {
  * Called from ConnectToCoachScreen when a client who signed up without a
  * code later wants to connect. Requires a valid coach invite code.
  *
- * Body: { inviteCode }
- * Returns: { success, message, coachName }
+ * Body: { inviteCode }   — the client identity comes from the JWT, never the body.
+ * Returns: { success, message, coachName, alreadyConnected? }
+ * Errors:  400 invalid code · 409 already connected to a different coach
  */
 export async function connectToCoach(
     inviteCode: string,
-): Promise<{ success: boolean; message: string; coachName: string }> {
+): Promise<{ success: boolean; message: string; coachName: string; alreadyConnected?: boolean }> {
     const headers  = await getAuthHeaders();
     const response = await fetch(`${BASE_URL}/api/auth/connect-coach`, {
         method:  'POST',
@@ -539,8 +541,12 @@ export async function loginUser(
 
 /**
  * POST /api/auth/google — exchange a Google ID token for a FitnessGuruSG JWT.
+ *
+ * Response is discriminated by `role`:
+ *   role 'coach'  → { coach }   (JWT sub = coaches._id)
+ *   role 'client' → { client }  (JWT sub = clients.id UUID; client.has_coach may be false)
  */
-export async function googleLogin(idToken: string): Promise<LoginResponse> {
+export async function googleLogin(idToken: string): Promise<GoogleLoginResponse> {
     const url = `${BASE_URL}/api/auth/google`;
     console.log('[GOOGLE LOGIN] request URL:', url);
 
@@ -553,7 +559,15 @@ export async function googleLogin(idToken: string): Promise<LoginResponse> {
     console.log('[GOOGLE LOGIN] response status:', response.status);
 
     if (response.status === 401) {
-        throw new Error('Google sign-in failed. Please try again.');
+        let errorMsg = 'Google sign-in failed. Please try again.';
+        try {
+            const body = await response.json();
+            // Surface actionable server messages (e.g. unverified Google email)
+            if (typeof body.error === 'string' && body.error.toLowerCase().includes('verif')) {
+                errorMsg = body.error;
+            }
+        } catch { /* ignore parse error */ }
+        throw new Error(errorMsg);
     }
     if (response.status === 500) {
         let errorMsg = 'Google login is not configured on this server.';
@@ -572,8 +586,8 @@ export async function googleLogin(idToken: string): Promise<LoginResponse> {
         throw new Error(errorMsg);
     }
 
-    const data = await response.json() as LoginResponse;
-    console.log('[GOOGLE LOGIN] success — token length:', data.token?.length ?? 0);
+    const data = await response.json() as GoogleLoginResponse;
+    console.log('[GOOGLE LOGIN] success — role:', data.role, '| token length:', data.token?.length ?? 0);
     return data;
 }
 
@@ -641,13 +655,7 @@ export async function getCheckIns(clientId: string): Promise<CheckInsResponse> {
  */
 export async function getClientBodyProfile(clientId: string): Promise<{
     success: boolean;
-    profile: {
-        height_cm:           number | null;
-        weight_kg:           number | null;
-        fitness_goal:        string | null;
-        injuries_notes:      string | null;
-        training_experience: string | null;
-    };
+    profile: ClientBodyProfile;
 }> {
     const headers  = await getAuthHeaders();
     const response = await fetchWithTimeout(

@@ -145,6 +145,20 @@ async function initIndexes(db: Db): Promise<void> {
             { name: 'payments_by_coach_date' }
         );
 
+        // clients.google_id (unique, partial)
+        //  → POST /auth/google looks clients up by google_id; the unique constraint
+        //    prevents two client records for one Google account (duplicate identity).
+        //    Partial filter: only documents that HAVE a google_id string are indexed,
+        //    so existing clients without the field are unaffected.
+        await db.collection('clients').createIndex(
+            { google_id: 1 },
+            {
+                unique: true,
+                partialFilterExpression: { google_id: { $type: 'string' } },
+                name: 'clients_google_id_unique',
+            }
+        );
+
         console.log('✅ MongoDB indexes verified');
 
     } catch (err: any) {

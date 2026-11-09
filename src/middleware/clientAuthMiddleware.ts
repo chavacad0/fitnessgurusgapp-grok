@@ -39,6 +39,26 @@ declare global {
     }
 }
 
+/**
+ * True for a client-role JWT whose only identity is a 24-hex MongoDB ObjectId in
+ * `sub` with no `clientId` claim. Only pre-fix POST /auth/google issued these, with
+ * sub = coaches._id. That is NOT a clients.id, so such tokens are rejected (401)
+ * instead of being treated as a client identity.
+ *
+ * Unaffected tokens:
+ *   client-login     → sub = clients.id (UUID, contains dashes)
+ *   client-register  → sub = clients._id BUT clientId claim = clients.id
+ *   coach tokens     → role !== 'client'
+ */
+export function isLegacyCoachDocClientToken(payload: {
+    sub?: string; role?: string; clientId?: string;
+}): boolean {
+    return payload.role === 'client'
+        && !payload.clientId
+        && typeof payload.sub === 'string'
+        && /^[a-f0-9]{24}$/i.test(payload.sub);
+}
+
 export function clientAuthMiddleware(
     req:  Request,
     res:  Response,
@@ -73,6 +93,18 @@ export function clientAuthMiddleware(
         // clientId resolution:
         //   New tokens (post-2026-04-24): sub = UUID, clientId claim absent → use sub
         //   Old tokens (pre-fix, still in circulation): sub = MongoDB _id, clientId = UUID → use clientId
+        //
+        // REJECTED: legacy Google client tokens (pre-2026-11 fix) carry sub = coaches._id
+        // (a 24-hex ObjectId) and NO clientId claim. That ID is a coach-collection document,
+        // not a client identity, so we never fall back to it — the user must sign in again,
+        // which now issues sub = clients.id.
+        if (isLegacyCoachDocClientToken(payload)) {
+            res.status(401).json({
+                success: false,
+                error:   'Your session has expired. Please log in again.',
+            });
+            return;
+        }
         const resolvedClientId = payload.clientId ?? payload.sub;
 
         req.clientAuth = {

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { isLegacyCoachDocClientToken } from './clientAuthMiddleware';
 
 /**
  * Auth middleware — validates Bearer JWT tokens.
@@ -65,6 +66,16 @@ export function authMiddleware(
             role?:     string;
             clientId?: string;   // present on client tokens — UUID from clients.id
         };
+
+        // Never treat a coaches-collection _id as a client identity (pre-fix Google
+        // client tokens). See isLegacyCoachDocClientToken for details.
+        if (isLegacyCoachDocClientToken(decoded)) {
+            res.status(401).json({
+                success: false,
+                error: 'Your session has expired. Please log in again.'
+            });
+            return;
+        }
 
         req.coach = {
             sub:      decoded.sub,

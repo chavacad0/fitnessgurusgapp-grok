@@ -4,14 +4,18 @@ import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
 import {
     createCoach, findCoachByEmail, getCoachById, findCoachByGoogleId,
-    createGoogleCoach, linkGoogleToCoach,
-    generateInviteCodeForCoach, findCoachByInviteCode, findSingleCoach,
+    linkGoogleToCoach,
+    generateInviteCodeForCoach, findCoachByInviteCode,
 } from '../repositories/mongoCoachRepo';
 import {
     findClientByEmail,
+    findClientByGoogleId,
     createClientAccount,
+    createGoogleClientAccount,
+    linkGoogleIdToClient,
     linkClientToCoach,
 } from '../repositories/mongoClientAuthRepo';
+import { Client } from '../types';
 import { toPublicCoach } from '../models/coachModel';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/authMiddleware';
 import { clientAuthMiddleware } from '../middleware/clientAuthMiddleware';
@@ -257,16 +261,93 @@ router.get('/me', authMiddleware, async (req: AuthenticatedRequest, res: Respons
  * Security model:
  *   The frontend sends the raw idToken from Google's OAuth flow.
  *   We verify it server-side using google-auth-library, which validates
- *   the token's signature against Google's public certificates.
+ *   the token's signature against Google's public certificates, its expiry
+ *   and its audience. We additionally assert the issuer and that Google has
+ *   verified the email address BEFORE any account lookup or linking.
  *   We NEVER trust any user data from the frontend — all profile info
  *   (email, name, picture) comes exclusively from the verified Google payload.
  *
- * Flow:
- *   1. Verify idToken → extract { sub (googleId), email, name, picture }
- *   2. findCoachByGoogleId → found → return JWT immediately
- *   3. Not found → findCoachByEmail → found → link Google ID → return JWT
- *   4. Not found either → createGoogleCoach → return JWT
+ * Identity resolution (coaches and clients live in separate collections):
+ *   1. Coach path — a 'coaches' document matched by googleId, then by verified email,
+ *      whose role is not 'client' → coach JWT (sub = coaches._id). Unchanged behaviour.
+ *   2. Client path — everyone else resolves to a record in the 'clients' collection:
+ *        clients.google_id match → existing client
+ *        else clients.email match (verified email) → link google_id (never overwrite)
+ *        else → create a new client with NO coach_id (connect via invitation code later)
+ *      Client JWT: sub = clients.id (UUID) — identical to POST /auth/client-login.
+ *      A coaches document ID is NEVER used as a client identity.
+ *
+ *   Legacy: pre-fix Google sign-ups were stored in 'coaches' with role 'client'.
+ *   Those documents are left untouched (no delete / no migration) and are only
+ *   referenced via clients.legacy_user_id for traceability.
  */
+const GOOGLE_ISSUERS = ['accounts.google.com', 'https://accounts.google.com'];
+
+/** Mask an email for logs: "jane.doe@gmail.com" → "j***@g***" */
+function maskEmail(email: string): string {
+    const [local = '', domain = ''] = email.split('@');
+    return `${local.charAt(0)}***@${domain.charAt(0)}***`;
+}
+
+/** Error carrying an HTTP status, thrown by resolveGoogleClient for identity conflicts. */
+class GoogleIdentityError extends Error {
+    constructor(public statusCode: number, message: string) { super(message); }
+}
+
+/**
+ * Resolve (find / link / create) the 'clients' record for a verified Google identity.
+ * Never overwrites an existing google_id or coach_id.
+ */
+async function resolveGoogleClient(args: {
+    googleId:      string;
+    email:         string;
+    name:          string;
+    legacyUserId?: string;
+}): Promise<{ client: Client; outcome: 'existing' | 'linked' | 'created' }> {
+    const { googleId, email, name, legacyUserId } = args;
+
+    // a) Already linked to this Google account
+    const byGoogle = await findClientByGoogleId(googleId);
+    if (byGoogle) return { client: byGoogle, outcome: 'existing' };
+
+    // b) Existing client with the same (Google-verified) email
+    const byEmail = await findClientByEmail(email);
+    if (byEmail) {
+        if (byEmail.google_id && byEmail.google_id !== googleId) {
+            throw new GoogleIdentityError(409,
+                'This email is already linked to a different Google account. Please contact support.');
+        }
+        if (!byEmail.google_id) {
+            const linked = await linkGoogleIdToClient(byEmail.id, googleId);
+            if (!linked) {
+                // Lost a race — re-read and make sure it was linked to THIS Google account
+                const reread = await findClientByGoogleId(googleId);
+                if (!reread || reread.id !== byEmail.id) {
+                    throw new GoogleIdentityError(409,
+                        'This email is already linked to a different Google account. Please contact support.');
+                }
+                return { client: reread, outcome: 'existing' };
+            }
+        }
+        return { client: { ...byEmail, google_id: googleId }, outcome: 'linked' };
+    }
+
+    // c) Brand-new client — no coach until a verified invitation code is used
+    try {
+        const created = await createGoogleClientAccount({
+            name, email, google_id: googleId, legacy_user_id: legacyUserId,
+        });
+        return { client: created, outcome: 'created' };
+    } catch (err: any) {
+        if (err?.code === 11000) {
+            // Concurrent first sign-in created it already (clients.google_id unique index)
+            const existing = await findClientByGoogleId(googleId);
+            if (existing) return { client: existing, outcome: 'existing' };
+        }
+        throw err;
+    }
+}
+
 router.post('/google', async (req: Request, res: Response) => {
     log('POST /auth/google', 'Google login attempt received');
 
@@ -291,9 +372,9 @@ router.post('/google', async (req: Request, res: Response) => {
     }
 
     try {
-        // ── Step 1: Verify Google ID token ────────────────────────────────────
-        const client = new OAuth2Client(googleClientId);
-        const ticket = await client.verifyIdToken({
+        // ── Step 1: Verify Google ID token (signature, expiry, audience) ──────
+        const oauthClient = new OAuth2Client(googleClientId);
+        const ticket = await oauthClient.verifyIdToken({
             idToken,
             audience: googleClientId,
         });
@@ -308,63 +389,131 @@ router.post('/google', async (req: Request, res: Response) => {
             return;
         }
 
-        const { sub: googleId, email, name = email, picture } = payload;
-        const normalizedEmail = email.toLowerCase().trim();
-
-        log('POST /auth/google', `Google token verified — email: ${normalizedEmail}`);
-
-        let coach;
-
-        // ── Step 2: Check if this Google account is already linked ─────────────
-        coach = await findCoachByGoogleId(googleId);
-
-        if (!coach) {
-                    // ── Step 3: Check if email exists as email/password account ───────
-            const existingCoach = await findCoachByEmail(normalizedEmail);
-
-            if (existingCoach) {
-                // Account linking: same email registered with email/password.
-                // Preserve existing role — do not downgrade a coach to client.
-                const coachId = (existingCoach as any)._id?.toString();
-                await linkGoogleToCoach(coachId, googleId, picture);
-                coach = { ...existingCoach, googleId, picture, provider: 'google' as const };
-                log('POST /auth/google', `✅ Linked Google ID to existing user (${(existingCoach as any).role ?? 'coach'}): ${normalizedEmail}`);
-            } else {
-                // ── Step 4: New user — create as client (Google default) ──────
-                coach = await createGoogleCoach({
-                    email:    normalizedEmail,
-                    name:     name || normalizedEmail,
-                    googleId,
-                    picture,
-                });
-                log('POST /auth/google', `✅ Created new client via Google: ${normalizedEmail}`);
-            }
-        } else {
-            log('POST /auth/google', `✅ Existing user found via Google (${(coach as any).role ?? 'coach'}): ${normalizedEmail}`);
+        // ── Step 1b: Explicit issuer / audience / verified-email assertions ───
+        // (defence in depth — performed BEFORE any account lookup or linking)
+        if (!GOOGLE_ISSUERS.includes(payload.iss)) {
+            log('POST /auth/google', '⚠️ Rejected: unexpected token issuer');
+            res.status(401).json({ success: false, error: 'Invalid Google token' });
+            return;
+        }
+        if (payload.aud !== googleClientId) {
+            log('POST /auth/google', '⚠️ Rejected: audience mismatch');
+            res.status(401).json({ success: false, error: 'Invalid Google token' });
+            return;
+        }
+        if (payload.email_verified !== true) {
+            log('POST /auth/google', '⚠️ Rejected: Google email not verified');
+            res.status(401).json({
+                success: false,
+                error: 'Your Google email address is not verified. Please verify it with Google and try again.',
+            });
+            return;
         }
 
-        // ── Step 5: Issue FitnessGuruSG JWT (role embedded) ──────────────────
+        const { sub: googleId, email, name = email, picture } = payload;
+        const normalizedEmail = email.toLowerCase().trim();
+        const masked = maskEmail(normalizedEmail);
+
+        log('POST /auth/google', `Google token verified — email: ${masked}`);
+
         const secret = process.env.JWT_SECRET!;
-        const userRole = (coach as any).role ?? 'coach';  // existing users without role default to 'coach'
+
+        // ── Step 2: Coach resolution (googleId first, then verified email) ────
+        let coachDoc: any = await findCoachByGoogleId(googleId);
+        let matchedBy: 'googleId' | 'email' | null = coachDoc ? 'googleId' : null;
+        if (!coachDoc) {
+            coachDoc = await findCoachByEmail(normalizedEmail);
+            if (coachDoc) matchedBy = 'email';
+        }
+
+        const coachRole = coachDoc ? (coachDoc.role ?? 'coach') : null; // no role field → legacy coach
+        if (coachDoc && coachRole !== 'client') {
+            // ── Coach path (behaviour unchanged) ──────────────────────────────
+            if (matchedBy === 'email') {
+                if (coachDoc.googleId && coachDoc.googleId !== googleId) {
+                    log('POST /auth/google', `⛔ Coach ${masked} already linked to a different Google account`);
+                    res.status(409).json({
+                        success: false,
+                        error: 'This email is already linked to a different Google account. Please contact support.',
+                    });
+                    return;
+                }
+                // Account linking: same verified email registered with email/password.
+                const coachId = coachDoc._id?.toString();
+                await linkGoogleToCoach(coachId, googleId, picture);
+                coachDoc = { ...coachDoc, googleId, picture, provider: 'google' as const };
+                log('POST /auth/google', `✅ Linked Google ID to existing coach: ${masked}`);
+            } else {
+                log('POST /auth/google', `✅ Existing coach found via Google: ${masked}`);
+            }
+
+            const token = jwt.sign(
+                {
+                    sub:   coachDoc._id?.toString() || '',
+                    email: coachDoc.email,
+                    role:  coachRole,   // mobile reads role from JWT — NOT from frontend
+                },
+                secret,
+                { expiresIn: JWT_EXPIRY }
+            );
+
+            log('POST /auth/google', `✅ JWT issued for ${masked} (role: ${coachRole})`);
+            res.json({
+                success: true,
+                token,
+                role:  coachRole,
+                coach: toPublicCoach(coachDoc),
+            });
+            return;
+        }
+
+        // ── Step 3: Client path — canonical identity lives in 'clients' ───────
+        // A legacy coaches document with role 'client' is NOT used for auth;
+        // its _id is only recorded on a newly created client for traceability.
+        const legacyUserId = coachDoc ? coachDoc._id?.toString() : undefined;
+
+        const { client, outcome } = await resolveGoogleClient({
+            googleId,
+            email: normalizedEmail,
+            name:  name || normalizedEmail,
+            legacyUserId,
+        });
+
+        log('POST /auth/google', `✅ Client resolved (${outcome}) for ${masked} — has coach: ${!!client.coach_id}`);
+
+        // sub = clients.id (UUID) — same contract as POST /auth/client-login
         const token = jwt.sign(
             {
-                sub:   (coach as any)._id?.toString() || '',
-                email: coach.email,
-                role:  userRole,   // mobile reads role from JWT — NOT from frontend
+                sub:   client.id,
+                email: client.email,
+                role:  'client',
             },
             secret,
             { expiresIn: JWT_EXPIRY }
         );
 
-        log('POST /auth/google', `✅ JWT issued for ${normalizedEmail} (role: ${userRole})`);
+        log('POST /auth/google', `✅ JWT issued for ${masked} (role: client)`);
 
         res.json({
             success: true,
             token,
-            coach: toPublicCoach(coach as any)
+            role: 'client',
+            client: {
+                _id:       (client as any)._id?.toString() ?? '',
+                id:        client.id,
+                email:     client.email,
+                name:      client.name,
+                coach_id:  client.coach_id ?? null,
+                has_coach: !!client.coach_id,
+            },
         });
 
     } catch (error: any) {
+        if (error instanceof GoogleIdentityError) {
+            log('POST /auth/google', `⛔ Identity conflict (${error.statusCode})`);
+            res.status(error.statusCode).json({ success: false, error: error.message });
+            return;
+        }
         // google-auth-library throws for invalid / expired / tampered tokens
         if (error.message?.includes('Token used too late') ||
             error.message?.includes('Invalid token signature') ||
@@ -390,34 +539,37 @@ router.post('/google', async (req: Request, res: Response) => {
  * POST /api/auth/client-register
  * Self-registration for clients.
  *
- * SINGLE-COACH ARCHITECTURE:
- *  No invite code required. All new clients are automatically linked
- *  to the single coach in the system (found via findSingleCoach).
+ * COACH LINKING (invitation-code only — no automatic assignment):
+ *  - If an optional `inviteCode` is supplied, it is verified server-side and the
+ *    new client is linked to that coach. An invalid code returns 400 and NO
+ *    account is created.
+ *  - If no code is supplied, the client is created WITHOUT a coach_id and is
+ *    directed to the Connect-to-Coach flow (POST /api/auth/connect-coach).
+ *  - A coach is never assigned arbitrarily (findSingleCoach is no longer used here).
  *
  * Flow:
  *  1. Validate name, email, password
- *  2. findSingleCoach() — fetch the one coach; 503 if none exists yet
+ *  2. (optional) verify inviteCode → coachId
  *  3. Check for duplicate email
  *  4. bcrypt.hash(password)
- *  5. createClientAccount({ name, email, password_hash, coach_id })
+ *  5. createClientAccount({ name, email, password_hash, coach_id? })
  *  6. Issue JWT with role: 'client'
  *  7. Return { success, token, client }
  *
  * Security:
  *  - Role is ALWAYS forced to 'client' — cannot be overridden
  *  - Duplicate email returns 409
- *
- * Backward compat:
- *  - Any coachCode field sent by an old client version is silently ignored
+ *  - A coach ID is never accepted from the request body
  */
 router.post('/client-register', authLimiter, async (req: Request, res: Response) => {
     log('POST /auth/client-register', 'Self-registration attempt received');
 
-    // Destructure only the fields we need — coachCode is intentionally ignored.
-    const { name, email, password } = req.body as {
-        name?:     string;
-        email?:    string;
-        password?: string;
+    // Destructure only the fields we need. Any coach id sent by the client is ignored.
+    const { name, email, password, inviteCode } = req.body as {
+        name?:       string;
+        email?:      string;
+        password?:   string;
+        inviteCode?: string;
     };
 
     // ── Required field validation ────────────────────────────────────────────
@@ -436,19 +588,22 @@ router.post('/client-register', authLimiter, async (req: Request, res: Response)
     }
 
     try {
-        // ── Auto-assign single coach ───────────────────────────────────────────
-        const coach = await findSingleCoach();
-        if (!coach) {
-            // No coach exists — system not yet set up
-            log('POST /auth/client-register', '❌ No coach found in system — system not initialised');
-            res.status(503).json({
-                success: false,
-                error:   'Registration is temporarily unavailable. Please try again later.',
-            });
-            return;
+        // ── Optional: verify invitation code server-side ──────────────────────
+        let coachId: string | undefined;
+        if (typeof inviteCode === 'string' && inviteCode.trim() !== '') {
+            const sanitized = inviteCode.trim().toUpperCase();
+            const coach = sanitized.length >= 4 && sanitized.length <= 16
+                ? await findCoachByInviteCode(sanitized)
+                : null;
+            if (!coach) {
+                res.status(400).json({
+                    success: false,
+                    error:   "That invite code doesn't match. Please check with your coach.",
+                });
+                return;
+            }
+            coachId = (coach as any)._id?.toString();
         }
-        const coachId = (coach as any)._id?.toString();
-        log('POST /auth/client-register', `✅ Auto-assigning coach ${coachId} to new client`);
 
         // ── Duplicate email check ─────────────────────────────────────────────────
         const existing = await findClientByEmail(email.trim().toLowerCase());
@@ -466,7 +621,7 @@ router.post('/client-register', authLimiter, async (req: Request, res: Response)
             name:          name.trim(),
             email:         email.trim().toLowerCase(),
             password_hash,
-            coach_id:      coachId,
+            coach_id:      coachId,   // undefined → created without a coach
         });
 
         const clientDocId = (client as any)._id?.toString() ?? '';
@@ -484,17 +639,18 @@ router.post('/client-register', authLimiter, async (req: Request, res: Response)
             { expiresIn: JWT_EXPIRY },
         );
 
-        log('POST /auth/client-register', `✅ Client registered: ${email} → coach ${coachId}`);
+        log('POST /auth/client-register', `✅ Client registered: ${maskEmail(client.email)} — has coach: ${!!coachId}`);
 
         res.status(201).json({
             success: true,
             token,
             client: {
-                _id:      clientDocId,
-                id:       client.id,
-                email:    client.email,
-                name:     client.name,
-                coach_id: client.coach_id ?? null,
+                _id:       clientDocId,
+                id:        client.id,
+                email:     client.email,
+                name:      client.name,
+                coach_id:  client.coach_id ?? null,
+                has_coach: !!client.coach_id,
             },
         });
     } catch (error: any) {
@@ -696,9 +852,11 @@ router.post('/client-login', authLimiter, async (req: Request, res: Response) =>
  * Rate-limited.
  */
 router.post('/connect-coach', authLimiter, clientAuthMiddleware, async (req: Request, res: Response) => {
-    const clientId = (req as any).clientAuth!.clientId as string;
+    // Identity comes ONLY from the verified client JWT — never from the request body.
+    const clientId = req.clientAuth!.clientId;
     log('POST /auth/connect-coach', `Client ${clientId} attempting to connect to coach`);
 
+    // Only the invite code is read from the body. Any coachId/clientId field is ignored.
     const { inviteCode } = req.body as { inviteCode?: string };
 
     // ── Validate input ────────────────────────────────────────────────────────
@@ -715,12 +873,13 @@ router.post('/connect-coach', authLimiter, clientAuthMiddleware, async (req: Req
     }
 
     try {
-        // ── Look up the coach by invite code ──────────────────────────────────
+        // ── Look up the coach by invite code (server-side verification) ───────
         const coach = await findCoachByInviteCode(sanitizedCode);
 
         if (!coach) {
-            // Return 400, not 404 — avoids confirming whether a code exists at all
-            log('POST /auth/connect-coach', `⚠️ No coach found for code: ${sanitizedCode}`);
+            // Return 400, not 404 — avoids confirming whether a code exists at all.
+            // The code itself is not logged.
+            log('POST /auth/connect-coach', `⚠️ Invalid invite code submitted by client ${clientId}`);
             res.status(400).json({
                 success: false,
                 error:   "That invite code doesn't match. Please check with your coach.",
@@ -730,21 +889,36 @@ router.post('/connect-coach', authLimiter, clientAuthMiddleware, async (req: Req
 
         const coachId = (coach as any)._id?.toString() as string;
 
-        // ── Link client to coach ──────────────────────────────────────────────
-        const linked = await linkClientToCoach(clientId, coachId);
+        // ── Link client to coach (atomic; never overwrites another coach) ─────
+        const outcome = await linkClientToCoach(clientId, coachId);
 
-        if (!linked) {
+        if (outcome === 'not_found') {
             log('POST /auth/connect-coach', `❌ Client ${clientId} not found during linkage`);
-            res.status(404).json({ success: false, error: 'Client account not found.' });
+            res.status(404).json({
+                success: false,
+                error:   'Client account not found. Please sign out and sign in again.',
+            });
             return;
         }
 
-        log('POST /auth/connect-coach', `✅ Client ${clientId} linked to coach ${coachId} (${coach.name})`);
+        if (outcome === 'conflict') {
+            log('POST /auth/connect-coach', `⛔ Client ${clientId} is already linked to a different coach — not overwritten`);
+            res.status(409).json({
+                success: false,
+                error:   'You are already connected to another coach. Please contact your coach if you need to switch programmes.',
+            });
+            return;
+        }
+
+        log('POST /auth/connect-coach', `✅ Client ${clientId} ${outcome === 'linked' ? 'linked to' : 'already linked to'} coach ${coachId}`);
 
         res.json({
-            success:    true,
-            message:    `You are now connected to ${coach.name}. Welcome to the program!`,
-            coachName:  coach.name,
+            success:         true,
+            alreadyConnected: outcome === 'already_linked',
+            message:         outcome === 'already_linked'
+                ? `You are already connected to ${coach.name}.`
+                : `You are now connected to ${coach.name}. Welcome to the program!`,
+            coachName:       coach.name,
         });
     } catch (error: any) {
         logError('POST /auth/connect-coach', error);

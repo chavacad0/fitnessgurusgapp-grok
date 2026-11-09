@@ -180,11 +180,17 @@ export async function generateInviteCodeForCoach(coachId: string): Promise<strin
  *
  * Code comparison is case-insensitive (stored lowercase, user may enter uppercase).
  * Returns null if no coach has this code — caller should return 400.
+ *
+ * SECURITY: only matches genuine coach accounts. Legacy documents in this
+ * collection with role 'client' (pre-fix Google sign-ups) can never act as
+ * a coach via an invite code. Documents without a role field are legacy
+ * coaches (role defaults to 'coach' at login), so they are still matched.
  */
 export async function findCoachByInviteCode(code: string): Promise<Coach | null> {
     const db = await getDb();
     return db.collection<Coach>('coaches').findOne({
         inviteCode: code.toLowerCase().trim(),
+        role: { $nin: ['client'] },
     }) ?? null;
 }
 

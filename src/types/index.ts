@@ -39,11 +39,24 @@ export interface Client {
     id: string;              // UUID string — canonical client identifier in all queries
     name: string;
     email: string;
-    coach_id: string;
+    /**
+     * Coach._id of the linked coach. ABSENT for clients who have not yet
+     * connected to a coach via a verified invitation code (POST /api/auth/connect-coach).
+     */
+    coach_id?: string;
 
     // ── Auth (self-registered clients only) ──────────────────────────────────
     /** bcrypt hash — present for self-registered clients, absent for coach-provisioned */
     password_hash?: string;
+    /** Google account 'sub' claim — present once the client has signed in with Google */
+    google_id?: string;
+    /** How the client record was first created */
+    auth_provider?: 'google' | 'password';
+    /**
+     * Legacy only: coaches._id of a pre-fix Google client record that was stored in the
+     * 'coaches' collection with role 'client'. Kept for traceability — NEVER used for auth.
+     */
+    legacy_user_id?: string;
 
     // ── Plan state (denormalised for fast dashboard reads) ────────────────────
     /** Current plan lifecycle status. Defaults to 'none'. */

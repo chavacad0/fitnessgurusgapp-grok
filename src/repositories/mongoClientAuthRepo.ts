@@ -49,6 +49,69 @@ export async function findClientById(id: string): Promise<Client | null> {
     return db.collection<Client>('clients').findOne({ id }) as Promise<Client | null>;
 }
 
+/**
+ * Find a client by the Google account 'sub' claim stored in clients.google_id.
+ * Used by POST /api/auth/google. Returns null if no client is linked to this Google account.
+ */
+export async function findClientByGoogleId(googleId: string): Promise<Client | null> {
+    const db = await getDb();
+    return db.collection<Client>('clients').findOne({ google_id: googleId }) as Promise<Client | null>;
+}
+
+// ─── Google client identity ───────────────────────────────────────────────────
+
+/**
+ * Create a new client record for a Google-authenticated user.
+ *
+ * Called by POST /api/auth/google ONLY after the Google ID token has been verified
+ * (signature, issuer, audience, expiry, email_verified).
+ *
+ * coach_id is intentionally NOT set — the client must connect to a coach through
+ * the verified invitation-code flow (POST /api/auth/connect-coach).
+ * No password_hash is written, so password login stays blocked for this record.
+ *
+ * @throws MongoServerError code 11000 on a unique-index race (caller re-reads).
+ */
+export async function createGoogleClientAccount(data: {
+    name:            string;
+    email:           string;
+    google_id:       string;
+    legacy_user_id?: string;
+}): Promise<Client> {
+    const db = await getDb();
+
+    const client: Client = {
+        id:            uuidv4(),
+        name:          data.name.trim(),
+        email:         data.email.toLowerCase().trim(),
+        google_id:     data.google_id,
+        auth_provider: 'google',
+        plan_status:   'none',
+        ...(data.legacy_user_id ? { legacy_user_id: data.legacy_user_id } : {}),
+    };
+
+    const result = await db.collection<Client>('clients').insertOne(client as any);
+    return { ...client, _id: result.insertedId.toString() };
+}
+
+/**
+ * Link a verified Google account to an EXISTING client record (same verified email).
+ *
+ * Atomic and non-destructive: only writes when the record has no google_id yet,
+ * so an existing Google link is never overwritten.
+ *
+ * @returns true if the link was written, false if the record already had a google_id
+ *          (caller must re-read and compare) or was not found.
+ */
+export async function linkGoogleIdToClient(clientId: string, googleId: string): Promise<boolean> {
+    const db = await getDb();
+    const result = await db.collection('clients').updateOne(
+        { id: clientId, google_id: { $exists: false } },
+        { $set: { google_id: googleId } },
+    );
+    return result.modifiedCount > 0;
+}
+
 // ─── Write ────────────────────────────────────────────────────────────────────
 
 /**
@@ -120,23 +183,44 @@ export async function updateClientPlanStatus(
 /**
  * Link an existing client to a coach by setting their coach_id.
  *
- * Called by POST /api/auth/connect-coach when a client who registered
- * without an invite code later provides one.
+ * Called by POST /api/auth/connect-coach after the invitation code has been
+ * verified server-side.
  *
- * Idempotent — if the client is already linked to this coach, it is a no-op.
+ * SAFETY: atomic conditional update — only writes when the client currently has
+ * NO coach (absent / null / '') or is already linked to this same coach.
+ * An existing relationship with a DIFFERENT coach is never overwritten.
  *
- * @returns true if the client document was found and updated, false if not found.
+ * @returns
+ *   'linked'          — coach_id was set (client previously had no coach)
+ *   'already_linked'  — client was already linked to this coach (idempotent no-op)
+ *   'conflict'        — client is linked to a different coach; nothing written
+ *   'not_found'       — no client with this id
  */
 export async function linkClientToCoach(
     clientId: string,
     coachId:  string,
-): Promise<boolean> {
+): Promise<'linked' | 'already_linked' | 'conflict' | 'not_found'> {
     const db = await getDb();
     const result = await db.collection('clients').updateOne(
-        { id: clientId },
+        {
+            id: clientId,
+            $or: [
+                { coach_id: { $exists: false } },
+                { coach_id: null },
+                { coach_id: '' },
+            ],
+        },
         { $set: { coach_id: coachId } },
     );
-    return result.matchedCount > 0;
+    if (result.modifiedCount > 0) return 'linked';
+
+    // Nothing written — find out why (no write happens below).
+    const existing = await db.collection('clients').findOne(
+        { id: clientId },
+        { projection: { coach_id: 1 } },
+    );
+    if (!existing) return 'not_found';
+    return existing['coach_id'] === coachId ? 'already_linked' : 'conflict';
 }
 
 // ─── Body profile ─────────────────────────────────────────────────────────────
