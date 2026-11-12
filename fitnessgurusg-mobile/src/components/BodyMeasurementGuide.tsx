@@ -2,8 +2,8 @@
  * BodyMeasurementGuide — Interactive measurement guide + editable inputs.
  *
  * Features:
- *   • Abstract body silhouette built with RN Views (no external images)
- *   • Tappable measurement markers: Neck, Chest/Bust, Waist, Hips
+ *   • Smooth body silhouette (PNG asset; no extra native library)
+ *   • Tappable measurement markers: Neck, Chest, Waist, Hips
  *   • Active state highlights the selected area with instructional text
  *   • Editable numeric inputs with explicit Save
  *   • Supports 'female' (4 areas) and 'male' (2 areas) modes
@@ -19,6 +19,9 @@ import {
     TextInput,
     ActivityIndicator,
     Alert,
+    Image,
+    LayoutChangeEvent,
+    Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radius, typography, shadows } from '../theme/theme';
@@ -67,9 +70,9 @@ const FEMALE_AREAS: AreaConfig[] = [
     },
     {
         key: 'chest',
-        label: 'Bust',
+        label: 'Chest',
         apiField: 'chest_cm',
-        instruction: 'Measure around the fullest part of your bust, keeping the tape level across your back.',
+        instruction: 'Measure around the fullest part of your chest, keeping the tape level across your back.',
         position: 30,
     },
     {
@@ -105,17 +108,20 @@ const MALE_AREAS: AreaConfig[] = [
     },
 ];
 
-const RING: Record<MeasurementArea, { top: number; width: number }> = {
-    neck:  { top: 28, width: 40 },
-    chest: { top: 58, width: 72 },
-    waist: { top: 86, width: 52 },
-    hips:  { top: 114, width: 66 },
+/**
+ * measurement-figure.png is 465×786 (@3x of the approved crop).
+ * Circles are baked into the image. cx/cy/r are pixels in that crop,
+ * so the transparent hit areas stay on the numbers at any width.
+ */
+const FIGURE_W = 465;
+const FIGURE_H = 786;
+const MARKERS: Record<MeasurementArea, { cx: number; cy: number; r: number }> = {
+    neck:  { cx: 389,   cy: 139,   r: 24.5 },
+    chest: { cx: 389.5, cy: 224.5, r: 25 },
+    waist: { cx: 389.5, cy: 314.5, r: 25 },
+    hips:  { cx: 393,   cy: 400.5, r: 25.5 },
 };
 
-/**
- * Symmetric silhouette drawn with views. No image and no extra library.
- * Numbered rings match Neck, Bust, Waist, and Hips.
- */
 function MeasurementFigure({
     areas,
     focusedArea,
@@ -125,31 +131,61 @@ function MeasurementFigure({
     focusedArea: MeasurementArea | null;
     onSelect: (key: MeasurementArea) => void;
 }) {
+    const [box, setBox] = useState({ w: 0, h: 0 });
+
+    const onLayout = (e: LayoutChangeEvent) => {
+        const { width, height } = e.nativeEvent.layout;
+        if (width !== box.w || height !== box.h) setBox({ w: width, h: height });
+    };
+
     return (
-        <View style={fig.wrap}>
-            <View style={fig.head} />
-            <View style={fig.torso} />
-            <View style={[fig.arm, fig.armLeft]} />
-            <View style={[fig.arm, fig.armRight]} />
-            <View style={[fig.leg, fig.legLeft]} />
-            <View style={[fig.leg, fig.legRight]} />
-            {areas.map((area, index) => {
-                const ring = RING[area.key];
+        <View style={fig.wrap} onLayout={onLayout}>
+            <Image
+                source={require('../../assets/measurement-figure.png')}
+                style={fig.image}
+                resizeMode="stretch"
+                accessible={false}
+            />
+            {box.w > 0 && areas.map((area, index) => {
+                const marker = MARKERS[area.key];
                 const active = focusedArea === area.key;
+                const size = (marker.r * 2 * box.w) / FIGURE_W;
+                const left = ((marker.cx - marker.r) * box.w) / FIGURE_W;
+                const top = ((marker.cy - marker.r) * box.h) / FIGURE_H;
+                const ringPad = (3 * box.w) / FIGURE_W;
+                const ringSize = size + ringPad * 2;
                 return (
-                    <TouchableOpacity
-                        key={area.key}
-                        style={[fig.ringHit, { top: ring.top }]}
-                        onPress={() => onSelect(area.key)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${area.label}, marker ${index + 1}`}
-                        accessibilityState={{ selected: active }}
-                    >
-                        <View style={[fig.ring, { width: ring.width }, active && fig.ringActive]} />
-                        <View style={[fig.badge, active && fig.badgeActive]}>
-                            <Text style={fig.badgeText}>{index + 1}</Text>
-                        </View>
-                    </TouchableOpacity>
+                    <React.Fragment key={area.key}>
+                        {active && (
+                            <View
+                                pointerEvents="none"
+                                style={[
+                                    fig.ring,
+                                    {
+                                        left: left - ringPad,
+                                        top: top - ringPad,
+                                        width: ringSize,
+                                        height: ringSize,
+                                        borderRadius: ringSize / 2,
+                                    },
+                                ]}
+                            />
+                        )}
+                        <Pressable
+                            style={{
+                                position: 'absolute',
+                                left,
+                                top,
+                                width: size,
+                                height: size,
+                                borderRadius: size / 2,
+                            }}
+                            onPress={() => onSelect(area.key)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${area.label}, marker ${index + 1}`}
+                            accessibilityState={{ selected: active }}
+                        />
+                    </React.Fragment>
                 );
             })}
         </View>
@@ -157,42 +193,16 @@ function MeasurementFigure({
 }
 
 const fig = StyleSheet.create({
-    wrap: { width: 112, height: 200, alignItems: 'center' },
-    head: {
-        position: 'absolute', top: 2, width: 26, height: 26, borderRadius: 13,
-        backgroundColor: '#C5DDD6',
+    wrap: {
+        width: '40%',
+        aspectRatio: FIGURE_W / FIGURE_H,
     },
-    torso: {
-        position: 'absolute', top: 24, width: 54, height: 86, borderRadius: 27,
-        backgroundColor: '#C5DDD6',
-    },
-    arm: {
-        position: 'absolute', top: 40, width: 14, height: 64, borderRadius: 7,
-        backgroundColor: '#C5DDD6',
-    },
-    armLeft: { left: 10 },
-    armRight: { right: 10 },
-    leg: {
-        position: 'absolute', top: 104, width: 16, height: 78, borderRadius: 8,
-        backgroundColor: '#C5DDD6',
-    },
-    legLeft: { left: 34 },
-    legRight: { right: 34 },
-    ringHit: {
-        position: 'absolute', left: 0, right: 0, height: 22,
-        alignItems: 'center', justifyContent: 'center',
-    },
+    image: { width: '100%', height: '100%' },
     ring: {
-        height: 8, borderRadius: 4,
-        borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.accent,
+        position: 'absolute',
+        borderWidth: 2,
+        borderColor: colors.primary,
     },
-    ringActive: { borderColor: colors.primary, backgroundColor: 'rgba(15,118,110,0.12)' },
-    badge: {
-        position: 'absolute', right: 0, width: 18, height: 18, borderRadius: 9,
-        backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
-    },
-    badgeActive: { backgroundColor: colors.primary },
-    badgeText: { color: colors.textOnPrimary, fontSize: 10, fontWeight: '700' },
 });
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -410,15 +420,14 @@ const MARKER_DEFAULT  = '#C5CDD5';
 const MARKER_ACTIVE   = colors.accent;
 
 const s = StyleSheet.create({
-    mgrid: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' },
+    mgrid: { flexDirection: 'row', gap: spacing.base, alignItems: 'center' },
     mTiles: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     mTile: {
         width: '47%',
-        borderWidth: 1.5,
-        borderStyle: 'dashed',
-        borderColor: '#CDE7E1',
+        borderWidth: 1,
+        borderColor: '#C9E8DF',
         borderRadius: radius.md,
-        backgroundColor: '#FBFDFC',
+        backgroundColor: '#F0FAF6',
         padding: spacing.sm,
         minHeight: 72,
         justifyContent: 'center',
@@ -430,7 +439,7 @@ const s = StyleSheet.create({
         backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
     },
     mNumText: { color: colors.textOnPrimary, fontSize: 9, fontWeight: '700' },
-    mLabel: { ...typography.caption, color: colors.textSecondary },
+    mLabel: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
     mValue: { ...typography.label, color: colors.accent },
     mUnit: { fontSize: 11, fontWeight: '500', color: colors.textSecondary },
     mUnset: { ...typography.caption, color: colors.textTertiary },
