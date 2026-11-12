@@ -445,6 +445,74 @@ Status for Motivation & Rewards overall: not started. Needs a design plan and ow
 
 ---
 
+## 15. Future plan: All-in-one client app (Trainerize comparison)
+
+**Proposal only. Not started. Each item below needs its own written plan and Ava's approval before any building.**
+
+Clients leave FitnessGuruSG for other apps: WhatsApp for messages, a MyFitnessPal-type app for food, and the phone's health app for steps and sleep. The aim is that a client can stay in this app for the day-to-day coaching loop. This note is based on a look at Trainerize in November 2026, to see which of those jobs are worth bringing in-app. Most of the list needs backend work, not only screens.
+
+### Where we are today
+
+| Area | FitnessGuruSG today |
+|---|---|
+| Scheduling / bookings | Has |
+| Workouts | Partial. Single workouts. No templates or programmes. |
+| Habits | Partial. Daily check-in. No custom habits. |
+| Nutrition | Partial. Manual macros. No meal photos. |
+| Progress photos and stats | Partial. Photos are not saved on the check-in (see AUD-008 in `docs/AUDIT.md`). Body measurements overwrite the last numbers (see AUD-009). No graphs. |
+| Payments | Partial. Practice payments only (see AUD-001). |
+| Coach–client messaging | Missing. Messages go out through a WhatsApp link. |
+| Exercise library / videos | Missing. |
+| Wearable / health sync | Missing. |
+| Groups and challenges | Missing. Planned only, under Motivation & Rewards in section 14. |
+| Automation | Partial. |
+| Branded app | Has, by nature. This app is already FitnessGuruSG's own app. |
+
+### Ranked roadmap
+
+Effort is a rough size: **S** small, **M** medium, **L** large. Order is the suggested build order.
+
+1. **Save progress properly, then show it. S.** Fix photo saving (AUD-008) and keep a history of body measurements (AUD-009). Add simple graphs for those body stats. This is the foundation. Later habits, meals, and health sync sit on top of records that actually stay saved.
+2. **In-app coach–client chat, in place of WhatsApp. M–L.** Messages can include health details, so access is strict: only the assigned coach and that client. The server checks that the coach owns the client. Logs must not contain personal data.
+3. **Custom habits. S–M.** Water, sleep, and steps, tied to the streaks and badges in the Motivation & Rewards plan.
+4. **Workout programmes. M.** Templates, duplicate last workout, quick assign, and multi-week programmes. An exercise library that uses the coach's own videos.
+5. **Meal photo log. M.** The client can attach a meal photo and the coach can comment. No food database.
+6. **Apple Health and Google Health Connect. L.** Sync steps, sleep, and weight. This needs a custom development build. It will not run in Expo Go. Follow Apple guideline 5.1.3 on health data: no ads or marketing use, and clear consent before the app reads health data.
+7. **Real payments, with recurring billing and a holiday pause. L.** The pause links to Holiday mode in section 14. Apple guidelines 3.1.3(d) and 3.1.3(e): one-to-one in-person or real-time personal training may be paid outside Apple in-app purchase. Digital-only content likely needs in-app purchase. Any change to payment wording needs Ava's approval.
+8. **Scheduled automatic messages. M.** Welcome, session reminders, and a weekly recap.
+
+**Quick win, outside the numbered list:** "Add to my calendar" on a booking.
+
+### Deliberately not copying
+
+These Trainerize-style pieces stay out of the plan:
+
+- Leaderboards that rank body data. Effort-only, opt-in boards are already limited in section 14. Weight and measurements stay off them.
+- Group video calls and live classes. Apple's in-app purchase rules make this a separate product decision.
+- An AI workout builder, for now.
+- Barcode scanning and a food database.
+- Team and franchise tools.
+- Paywalled add-ons.
+- Risk tags that the client can see.
+
+### Before anyone builds
+
+Each numbered item needs its own design plan and Ava's approval. Most of them need backend work, not only a new screen.
+
+### Sources
+
+Read in November 2026:
+
+- [Trainerize features](https://www.trainerize.com/features/)
+- [Trainerize pricing](https://www.trainerize.com/pricing/)
+- [Trainerize help: How to use and set up Program Auto-Messages](https://help.trainerize.com/hc/en-us/articles/360000397966-How-To-Use-and-Setup-Program-Auto-Messages)
+- [Trainerize help: What data syncs from wearables and app integrations](https://help.trainerize.com/hc/en-us/articles/15206977916052-What-Data-Syncs-From-Wearables-and-App-Integrations)
+- [Institute of Personal Trainers, Trainerize review, 30 October 2026](https://instituteofpersonaltrainers.com/blog/trainerize-review)
+- [Capterra, ABC Trainerize reviews: 4.6/5 from 694 reviews, October 2026](https://www.capterra.com/p/140262/Trainerize/reviews/)
+- [Apple App Store Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)
+
+---
+
 ## Archive
 
 Full project history, phase-by-phase development notes, change logs, and previous audit details are preserved in:

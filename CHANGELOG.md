@@ -17,6 +17,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 - [Pull request #7](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/7) — Docs only. Inside the Motivation & Rewards future plan, `PROJECT_STATUS.md` adds Holiday mode (pause): the client sets dates, the streak freezes, reminders pause, and the coach sees a calm holiday badge. Whether paid plan dates extend is an open decision. Nothing in the app is built. The audit log is unchanged.
 
+### Added
+
+- PROJECT_STATUS: all-in-one client app roadmap based on Trainerize comparison. Docs only. Nothing in the app is built.
+
 ## [2026-11-12]
 
 ### Added
