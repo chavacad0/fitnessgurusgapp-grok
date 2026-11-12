@@ -13,6 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ## [Unreleased]
 
+### Changed
+
+- [Pull request #14](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/14) — Welcome is a full-screen navy screen with a white FG tile, a white Log in button, and an outlined Sign up button. The feature chips are gone. Log in puts the back button on its own row, uses line icons for Client and Coach, and shows the coach note under that switch. The Google button uses the coloured G. Signing in works the same way.
+
 ### Fixed
 
 - Security (AUD-005), [pull request #13](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/13): `npm test` no longer deletes every client from the database the app is configured with. It connects only through `TEST_MONGODB_URI`, and it refuses to delete unless `NODE_ENV` is `test` and the database name ends with `_test`. It deletes only the rows that test created.

@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
     View, Text, TextInput, TouchableOpacity, StyleSheet,
     ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
-    TextInput as RNTextInput,
+    TextInput as RNTextInput, Image, StatusBar,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
@@ -67,6 +68,9 @@ export default function LoginScreen({ navigation }: Props) {
     const [loading,       setLoading]       = useState(false);
     const [googleLoading, setGoogleLoading] = useState(false);
     const [error,         setError]         = useState<string | null>(null);
+    const [showPassword,  setShowPassword]  = useState(false);
+    const [emailFocused,  setEmailFocused]  = useState(false);
+    const [passwordFocused, setPasswordFocused] = useState(false);
 
     const passwordRef  = useRef<RNTextInput>(null);
     const isAnyLoading = loading || googleLoading;
@@ -197,35 +201,27 @@ export default function LoginScreen({ navigation }: Props) {
 
     return (
         <SafeAreaView style={s.root}>
+            <StatusBar barStyle="dark-content" />
             <KeyboardAvoidingView
                 style={s.flex}
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
-                {/* ── Ghost back button ─────────────────────────────────────── */}
-                <TouchableOpacity
-                    style={s.backBtn}
-                    onPress={() => navigation.goBack()}
-                    hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Go back"
-                >
-                    <Text style={s.backIcon}>←</Text>
-                </TouchableOpacity>
+                <View style={s.backRow}>
+                    <TouchableOpacity
+                        style={s.backBtn}
+                        onPress={() => navigation.goBack()}
+                        accessibilityRole="button"
+                        accessibilityLabel="Go back"
+                    >
+                        <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+                    </TouchableOpacity>
+                </View>
 
                 <ScrollView
                     contentContainerStyle={s.scroll}
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
                 >
-                    {/* ── Brand identity ───────────────────────────────────── */}
-                    <View style={s.brandBlock}>
-                        <View style={s.mark}>
-                            <Text style={s.markFG}>FG</Text>
-                            <Text style={s.markSG}>SG</Text>
-                        </View>
-                        <Text style={s.brandName}>FitnessGuruSG</Text>
-                    </View>
-
                     {/* ── Page heading ─────────────────────────────────────── */}
                     <View style={s.pageHeader}>
                         <Text style={s.title}>Welcome back</Text>
@@ -255,11 +251,16 @@ export default function LoginScreen({ navigation }: Props) {
                                 accessibilityLabel="Log in as Client"
                                 accessibilityState={{ selected: selectedRole === 'client' }}
                             >
+                                <Ionicons
+                                    name="person-outline"
+                                    size={16}
+                                    color={selectedRole === 'client' ? '#FFFFFF' : colors.textSecondary}
+                                />
                                 <Text style={[
                                     s.roleBtnText,
                                     selectedRole === 'client' && s.roleBtnTextActive,
                                 ]}>
-                                    🏃 Client
+                                    Client
                                 </Text>
                             </TouchableOpacity>
 
@@ -274,37 +275,57 @@ export default function LoginScreen({ navigation }: Props) {
                                 accessibilityLabel="Log in as Coach"
                                 accessibilityState={{ selected: selectedRole === 'coach' }}
                             >
+                                <Ionicons
+                                    name="clipboard-outline"
+                                    size={16}
+                                    color={selectedRole === 'coach' ? '#FFFFFF' : colors.textSecondary}
+                                />
                                 <Text style={[
                                     s.roleBtnText,
                                     selectedRole === 'coach' && s.roleBtnTextActive,
                                 ]}>
-                                    💪 Coach
+                                    Coach
                                 </Text>
                             </TouchableOpacity>
                         </View>
+                        {selectedRole === 'coach' ? (
+                            <View style={s.coachNote}>
+                                <Ionicons name="information-circle-outline" size={16} color={colors.accent} />
+                                <Text style={s.coachNoteText}>
+                                    Coach accounts are set up by FitnessGuruSG.
+                                </Text>
+                            </View>
+                        ) : null}
                     </View>
 
                     {/* ── Form ─────────────────────────────────────────────── */}
                     <View style={s.formSection}>
-                        <Text style={s.sectionLabel}>CREDENTIALS</Text>
-
                         {/* Email */}
                         <View style={s.fieldGroup}>
-                            <Text style={s.fieldLabel}>Email address</Text>
-                            <TextInput
-                                style={[s.input, !!error && s.inputError]}
-                                placeholder="you@example.com"
-                                placeholderTextColor={colors.placeholder}
-                                value={email}
-                                onChangeText={t => { setEmail(t); setError(null); }}
-                                keyboardType="email-address"
-                                autoCapitalize="none"
-                                autoCorrect={false}
-                                editable={!isAnyLoading}
-                                accessibilityLabel="Email address"
-                                returnKeyType="next"
-                                onSubmitEditing={() => passwordRef.current?.focus()}
-                            />
+                            <Text style={[s.fieldLabel, s.fieldLabelGap]}>Email address</Text>
+                            <View style={[s.inputRow, emailFocused && s.inputFocused, !!error && s.inputError]}>
+                                <Ionicons
+                                    name="mail-outline"
+                                    size={18}
+                                    color={emailFocused ? colors.accent : colors.placeholder}
+                                />
+                                <TextInput
+                                    style={s.input}
+                                    placeholder="you@example.com"
+                                    placeholderTextColor={colors.placeholder}
+                                    value={email}
+                                    onChangeText={t => { setEmail(t); setError(null); }}
+                                    onFocus={() => setEmailFocused(true)}
+                                    onBlur={() => setEmailFocused(false)}
+                                    keyboardType="email-address"
+                                    autoCapitalize="none"
+                                    autoCorrect={false}
+                                    editable={!isAnyLoading}
+                                    accessibilityLabel="Email address"
+                                    returnKeyType="next"
+                                    onSubmitEditing={() => passwordRef.current?.focus()}
+                                />
+                            </View>
                         </View>
 
                         {/* Password */}
@@ -320,19 +341,40 @@ export default function LoginScreen({ navigation }: Props) {
                                     <Text style={s.forgotLink}>Forgot?</Text>
                                 </TouchableOpacity>
                             </View>
-                            <TextInput
-                                ref={passwordRef}
-                                style={[s.input, !!error && s.inputError]}
-                                placeholder="••••••••"
-                                placeholderTextColor={colors.placeholder}
-                                value={password}
-                                onChangeText={t => { setPassword(t); setError(null); }}
-                                secureTextEntry
-                                editable={!isAnyLoading}
-                                accessibilityLabel="Password"
-                                returnKeyType="done"
-                                onSubmitEditing={handleLogin}
-                            />
+                            <View style={[s.inputRow, passwordFocused && s.inputFocused, !!error && s.inputError]}>
+                                <Ionicons
+                                    name="lock-closed-outline"
+                                    size={18}
+                                    color={passwordFocused ? colors.accent : colors.placeholder}
+                                />
+                                <TextInput
+                                    ref={passwordRef}
+                                    style={s.input}
+                                    placeholder="Enter your password"
+                                    placeholderTextColor={colors.placeholder}
+                                    value={password}
+                                    onChangeText={t => { setPassword(t); setError(null); }}
+                                    onFocus={() => setPasswordFocused(true)}
+                                    onBlur={() => setPasswordFocused(false)}
+                                    secureTextEntry={!showPassword}
+                                    editable={!isAnyLoading}
+                                    accessibilityLabel="Password"
+                                    returnKeyType="done"
+                                    onSubmitEditing={handleLogin}
+                                />
+                                <TouchableOpacity
+                                    style={s.eyeBtn}
+                                    onPress={() => setShowPassword(current => !current)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                                >
+                                    <Ionicons
+                                        name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                                        size={20}
+                                        color={colors.textSecondary}
+                                    />
+                                </TouchableOpacity>
+                            </View>
                         </View>
                     </View>
 
@@ -370,7 +412,7 @@ export default function LoginScreen({ navigation }: Props) {
 
                     {/* ── Google — secondary ───────────────────────────────── */}
                     <TouchableOpacity
-                        style={[s.btnGoogle, isAnyLoading && s.btnDisabled]}
+                        style={[s.btnGoogle, isAnyLoading && s.btnGoogleDisabled]}
                         onPress={handleGoogleLogin}
                         disabled={isAnyLoading}
                         activeOpacity={0.85}
@@ -381,9 +423,11 @@ export default function LoginScreen({ navigation }: Props) {
                             <ActivityIndicator color={colors.textPrimary} />
                         ) : (
                             <>
-                                <View style={s.googleMark}>
-                                    <Text style={s.googleMarkText}>G</Text>
-                                </View>
+                                <Image
+                                    source={require('../../assets/google-g.png')}
+                                    style={s.googleMark}
+                                    accessible={false}
+                                />
                                 <Text style={s.btnGoogleText}>Continue with Google</Text>
                             </>
                         )}
@@ -393,11 +437,6 @@ export default function LoginScreen({ navigation }: Props) {
                     {/* Sign up always opens client registration. There is no way
                         to create a coach account from the app. */}
                     <View style={s.signupBlock}>
-                        {selectedRole === 'coach' ? (
-                            <Text style={s.coachNote}>
-                                Coach accounts are set up by FitnessGuruSG.
-                            </Text>
-                        ) : null}
                         <View style={s.switchRow}>
                             <Text style={s.switchText}>
                                 {selectedRole === 'coach' ? 'New client? ' : 'New here? '}
@@ -426,53 +465,27 @@ const s = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.background },
     flex: { flex: 1 },
 
-    // ── Ghost back button ──────────────────────────────────────────────────────
+    backRow: {
+        paddingHorizontal: spacing.xl,
+        paddingTop: spacing.sm,
+        paddingBottom: spacing.xs,
+    },
     backBtn: {
-        position: 'absolute',
-        top: 12, left: 16,
-        zIndex: 10,
-        width: 40, height: 40,
+        width: 44,
+        height: 44,
         borderRadius: radius.md,
         backgroundColor: colors.surface,
-        borderWidth: 1, borderColor: colors.border,
-        alignItems: 'center', justifyContent: 'center',
-        ...shadows.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
-    backIcon: { fontSize: 20, color: colors.textPrimary, lineHeight: 24 },
 
-    // ── Scroll ─────────────────────────────────────────────────────────────────
     scroll: {
         flexGrow: 1,
         paddingHorizontal: spacing.xl,
-        paddingTop: 72,          // clears the absolute back button
+        paddingTop: spacing.sm,
         paddingBottom: spacing.section,
-    },
-
-    // ── Brand block ────────────────────────────────────────────────────────────
-    brandBlock: {
-        alignItems: 'center',
-        marginBottom: spacing.section,
-    },
-    mark: {
-        width: 72, height: 72,
-        borderRadius: radius.cardLg,
-        backgroundColor: colors.buttonPrimaryBg,
-        alignItems: 'center', justifyContent: 'center',
-        marginBottom: spacing.md,
-        ...shadows.cardElevated,
-    },
-    markFG: {
-        fontSize: 20, fontWeight: '800', color: '#FFF',
-        letterSpacing: 2, lineHeight: 24,
-    },
-    markSG: {
-        fontSize: 9, fontWeight: '600',
-        color: 'rgba(255,255,255,0.55)',
-        letterSpacing: 3,
-    },
-    brandName: {
-        fontSize: 15, fontWeight: '700',
-        color: colors.textPrimary, letterSpacing: 0.2,
     },
 
     // ── Page header ────────────────────────────────────────────────────────────
@@ -501,18 +514,18 @@ const s = StyleSheet.create({
     },
     roleToggle: {
         flexDirection: 'row',
-        backgroundColor: colors.surface,
+        backgroundColor: '#F3F4F6',
         borderRadius: radius.card,
-        borderWidth: 1,
-        borderColor: colors.border,
         padding: 4,
-        ...shadows.card,
+        gap: 4,
     },
     roleBtn: {
         flex: 1,
-        paddingVertical: 10,
+        minHeight: 44,
+        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
+        gap: 6,
         borderRadius: radius.md,
     },
     roleBtnActive: {
@@ -553,23 +566,59 @@ const s = StyleSheet.create({
         marginBottom: 6,
     },
     fieldLabel: {
-        fontSize: 13, fontWeight: '500',
-        color: colors.textSecondary,
-    },
-    forgotLink: {
-        fontSize: 13, fontWeight: '500',
-        color: colors.accent,
-    },
-    input: {
-        height: componentSize.input,
-        backgroundColor: colors.background,
-        borderWidth: 1, borderColor: colors.border,
-        borderRadius: radius.input,
-        paddingHorizontal: spacing.base,
-        ...typography.body,
+        fontSize: 13, fontWeight: '600',
         color: colors.textPrimary,
     },
+    fieldLabelGap: { marginBottom: 6 },
+    forgotLink: {
+        fontSize: 13, fontWeight: '600',
+        color: colors.accent,
+    },
+    inputRow: {
+        height: componentSize.input,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: colors.background,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radius.input,
+        paddingHorizontal: spacing.md,
+    },
+    inputFocused: {
+        borderColor: colors.accent,
+        borderWidth: 1.5,
+    },
+    input: {
+        flex: 1,
+        height: '100%',
+        ...typography.body,
+        color: colors.textPrimary,
+        paddingVertical: 0,
+    },
+    eyeBtn: {
+        width: 44,
+        height: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     inputError: { borderColor: colors.errorBorder, backgroundColor: colors.errorBg },
+    coachNote: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginTop: spacing.md,
+        backgroundColor: colors.accentSubtle,
+        borderRadius: radius.md,
+        paddingVertical: 10,
+        paddingHorizontal: spacing.md,
+    },
+    coachNoteText: {
+        ...typography.caption,
+        color: colors.accent,
+        flex: 1,
+        lineHeight: 18,
+    },
 
     // ── Error banner ───────────────────────────────────────────────────────────
     errorBanner: {
@@ -621,23 +670,18 @@ const s = StyleSheet.create({
     // ── Google ─────────────────────────────────────────────────────────────────
     btnGoogle: {
         height: componentSize.button,
-        backgroundColor: colors.surface,
+        backgroundColor: '#FFFFFF',
         borderRadius: radius.card,
-        borderWidth: 1.5, borderColor: colors.border,
+        borderWidth: 1,
+        borderColor: '#DADCE0',
         flexDirection: 'row',
         alignItems: 'center', justifyContent: 'center',
         gap: spacing.sm,
-        ...shadows.card,
     },
+    btnGoogleDisabled: { opacity: 0.6 },
     googleMark: {
-        width: 22, height: 22, borderRadius: 11,
-        backgroundColor: '#FFF',
-        borderWidth: 1, borderColor: '#E0E0E0',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    googleMarkText: {
-        fontSize: 13, fontWeight: '800',
-        color: '#4285F4', lineHeight: 16,
+        width: 18,
+        height: 18,
     },
     btnGoogleText: {
         fontSize: 15, fontWeight: '600',
@@ -649,12 +693,6 @@ const s = StyleSheet.create({
         marginTop: spacing.xxl,
         alignItems: 'center',
         gap: spacing.sm,
-    },
-    coachNote: {
-        ...typography.caption,
-        color: colors.textSecondary,
-        textAlign: 'center',
-        lineHeight: 18,
     },
     switchRow: {
         flexDirection: 'row',
