@@ -41,6 +41,7 @@ import { NutritionData, WorkoutAssignment, WorkoutLog, ExerciseLog, WorkoutHisto
 import { colors, spacing, radius, typography, componentSize, shadows } from '../../theme/theme';
 import RatingRow from '../../components/RatingRow';
 import NutritionCard from '../../components/NutritionCard';
+import Button from '../../components/Button';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -124,7 +125,9 @@ function PhotoPicker({ photoUrls, uploadingCount, onAdd, onRemove }: PhotoPicker
                             <TouchableOpacity
                                 style={ph.removeBtn}
                                 onPress={() => onRemove(url)}
-                                hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                                hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+                                accessibilityRole="button"
+                                accessibilityLabel="Remove photo"
                             >
                                 <Text style={ph.removeX}>✕</Text>
                             </TouchableOpacity>
@@ -163,7 +166,7 @@ const ph = StyleSheet.create({
     thumb:        { width: 80, height: 80, borderRadius: radius.md, position: 'relative', backgroundColor: colors.border },
     thumbImg:     { width: 80, height: 80, borderRadius: radius.md },
     thumbLoading: { alignItems: 'center', justifyContent: 'center' },
-    removeBtn:    { position: 'absolute', top: 3, right: 3, width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' },
+    removeBtn:    { position: 'absolute', top: 4, right: 4, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' },
     removeX:      { color: '#fff', fontSize: 10, fontWeight: '700' },
     addBtn:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, gap: 6, marginTop: spacing.xs },
     addPlus:      { fontSize: 18, color: colors.accent, fontWeight: '600' },
@@ -999,7 +1002,7 @@ export default function ClientHomeScreen() {
                 <View style={s.successIcon}>
                     <Ionicons name="checkmark-circle" size={40} color="#059669" />
                 </View>
-                <Text style={s.successHeading}>You're all logged in.</Text>
+                <Text style={s.successHeading}>Check-in saved.</Text>
                 <Text style={s.successBody}>
                     Well done, {user?.name?.split(' ')[0] ?? 'you'}.{'\n'}
                     Your coach can see your check-in.
@@ -1036,15 +1039,17 @@ export default function ClientHomeScreen() {
                         return (
                             <View style={ci.pausedCard}>
                                 <View style={ci.pausedRow}>
-                                    <Text style={ci.pausedIcon}>⏸</Text>
+                                    <Ionicons name="pause-circle-outline" size={22} color={colors.textSecondary} />
                                     <View style={ci.pausedTextBlock}>
                                         <Text style={ci.pausedTitle}>Your check-in reminders are paused.</Text>
                                         <Text style={ci.pausedSub}>You can still submit a check-in anytime.</Text>
                                     </View>
                                 </View>
-                                <TouchableOpacity style={ci.resumeBtn} onPress={handleResumeCheckIns}>
-                                    <Text style={ci.resumeBtnTxt}>Resume check-ins</Text>
-                                </TouchableOpacity>
+                                <Button
+                                    label="Resume check-ins"
+                                    onPress={handleResumeCheckIns}
+                                    fullWidth
+                                />
                             </View>
                         );
                     }
@@ -1053,19 +1058,22 @@ export default function ClientHomeScreen() {
                     if (reminderEnabled === undefined) {
                         return (
                             <View style={ci.prefCard}>
-                                <Text style={ci.prefTitle}>Daily check-in reminders</Text>
                                 <Text style={ci.prefQuestion}>Would you like daily check-in reminders?</Text>
                                 <Text style={ci.prefSub}>
                                     We'll remind you to submit your progress so your coach can support you better.
                                 </Text>
-                                <View style={ci.prefBtnRow}>
-                                    <TouchableOpacity style={ci.prefBtnYes} onPress={() => handleReminderChoice(true)}>
-                                        <Text style={ci.prefBtnYesTxt}>Yes, remind me daily</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity style={ci.prefBtnNo} onPress={() => handleReminderChoice(false)}>
-                                        <Text style={ci.prefBtnNoTxt}>Not now</Text>
-                                    </TouchableOpacity>
-                                </View>
+                                <Button
+                                    label="Yes, remind me daily"
+                                    onPress={() => handleReminderChoice(true)}
+                                    fullWidth
+                                    style={ci.prefBtnGap}
+                                />
+                                <Button
+                                    label="Not now"
+                                    variant="secondary"
+                                    onPress={() => handleReminderChoice(false)}
+                                    fullWidth
+                                />
                             </View>
                         );
                     }
@@ -1078,7 +1086,7 @@ export default function ClientHomeScreen() {
                                 : "You've missed 2 check-ins. A quick update helps your coach adjust your plan.";
                         return (
                             <View style={[ci.missedBanner, missedStreak === 2 && ci.missedBannerStrong]}>
-                                <Text style={ci.missedBannerIcon}>{missedStreak === 1 ? '📅' : '⚠️'}</Text>
+                                <Ionicons name="calendar-outline" size={18} color={colors.amberText} />
                                 <Text style={ci.missedBannerTxt}>{bannerCopy}</Text>
                             </View>
                         );
@@ -1128,7 +1136,7 @@ export default function ClientHomeScreen() {
                     question="How hungry or snacky do you feel today?"
                     value={hunger}
                     onChange={setHunger}
-                    accentColor={(colors as any).celebrationAccent ?? '#6D28D9'}
+                    accentColor={colors.badgeSuccessText}
                     lowLabel="Low appetite"
                     highLabel="Very hungry / craving"
                 />
@@ -1213,7 +1221,7 @@ export default function ClientHomeScreen() {
                 />
 
                 {/* Bottom spacer — makes room for sticky submit bar */}
-                <View style={{ height: 100 }} />
+                <View style={{ height: 160 }} />
 
             </ScrollView>
 
@@ -1344,55 +1352,40 @@ const s = StyleSheet.create({
 // ─── Check-in Preference / Pause Styles ──────────────────────────────────────
 
 const ci = StyleSheet.create({
-    // Preference card (not-yet-chosen state)
+    // Preference card (not-yet-chosen state). Navy and teal, not a blue banner.
     prefCard: {
-        backgroundColor: '#EFF6FF',
-        borderWidth: 1, borderColor: '#BFDBFE',
-        borderRadius: 14,
-        padding: 16,
-        marginBottom: 16,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radius.card,
+        padding: spacing.base,
+        marginBottom: spacing.base,
+        ...shadows.card,
     },
-    prefTitle:    { fontSize: 13, fontWeight: '800', color: '#1E40AF', marginBottom: 4, letterSpacing: 0.4 },
-    prefQuestion: { fontSize: 15, fontWeight: '700', color: '#1E3A8A', marginBottom: 6 },
-    prefSub:      { fontSize: 13, color: '#3B82F6', lineHeight: 19, marginBottom: 14 },
-    prefBtnRow:   { flexDirection: 'row', gap: 10 },
-    prefBtnYes: {
-        flex: 1, backgroundColor: '#2563EB', borderRadius: 10,
-        paddingVertical: 10, alignItems: 'center',
-    },
-    prefBtnYesTxt: { fontSize: 13, fontWeight: '700', color: '#fff' },
-    prefBtnNo: {
-        flex: 1, backgroundColor: '#DBEAFE', borderRadius: 10,
-        paddingVertical: 10, alignItems: 'center',
-    },
-    prefBtnNoTxt: { fontSize: 13, fontWeight: '600', color: '#1D4ED8' },
+    prefQuestion: { ...typography.h3, color: colors.textPrimary, marginBottom: spacing.xs },
+    prefSub:      { ...typography.body, color: colors.textSecondary, lineHeight: 22, marginBottom: spacing.base },
+    prefBtnGap:   { marginBottom: spacing.sm },
 
     // Paused banner
     pausedCard: {
-        backgroundColor: '#F3F4F6',
-        borderWidth: 1, borderColor: '#D1D5DB',
-        borderRadius: 14,
-        padding: 16,
-        marginBottom: 16,
+        backgroundColor: colors.surfaceMuted,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radius.card,
+        padding: spacing.base,
+        marginBottom: spacing.base,
     },
-    pausedRow:       { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 14 },
-    pausedIcon:      { fontSize: 22, marginTop: 1 },
+    pausedRow:       { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, marginBottom: spacing.base },
     pausedTextBlock: { flex: 1 },
-    pausedTitle:     { fontSize: 15, fontWeight: '700', color: '#374151', marginBottom: 3 },
-    pausedSub:       { fontSize: 13, color: '#6B7280', lineHeight: 19 },
-    resumeBtn: {
-        backgroundColor: '#4B5563', borderRadius: 10,
-        paddingVertical: 10, alignItems: 'center',
-    },
-    resumeBtnTxt: { fontSize: 13, fontWeight: '700', color: '#fff' },
+    pausedTitle:     { ...typography.label, color: colors.textPrimary, marginBottom: 3 },
+    pausedSub:       { ...typography.caption, color: colors.textSecondary, lineHeight: 18 },
 
-    // Missed streak banners (1–2 missed)
+    // Missed streak banners (1–2 missed). Amber text, no warning triangle.
     missedBanner: {
-        flexDirection: 'row', alignItems: 'center', gap: 10,
-        backgroundColor: '#FEF9C3', borderWidth: 1, borderColor: '#FDE68A',
-        borderRadius: 12, padding: 12, marginBottom: 14,
+        flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+        backgroundColor: colors.badgeWarningBg, borderWidth: 1, borderColor: colors.amberBorder,
+        borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.base,
     },
-    missedBannerStrong: { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' },
-    missedBannerIcon:   { fontSize: 18 },
-    missedBannerTxt:    { flex: 1, fontSize: 13, color: '#92400E', lineHeight: 19 },
+    missedBannerStrong: { backgroundColor: colors.amberBg },
+    missedBannerTxt:    { flex: 1, ...typography.caption, color: colors.badgeWarningText, lineHeight: 18 },
 });
