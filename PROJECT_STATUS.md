@@ -419,7 +419,29 @@ Phase 2, later and optional: leaderboards. They must be strictly opt-in, and the
 
 Open questions for the design plan: the full badge list, whether a coach can award a badge, and how often the app should send a notification.
 
-Status: not started. Needs a design plan and owner approval.
+### Holiday mode (pause)
+
+Proposal only. Not started. This sits inside Motivation & Rewards. Do not build it until that design is approved.
+
+A client sets a start date and an end date. For those days:
+
+- The streak is frozen. It is not broken.
+- Daily check-in reminders pause on their own.
+- The coach sees a calm badge, "On holiday until" the end date, in place of follow-up warnings.
+- Light logging is optional. A walk or a hotel workout can count as a bonus. It is never required.
+- When the holiday ends, the client gets a "Welcome back" check-in.
+
+Guardrails:
+
+- A holiday has a maximum length (for example, 3 weeks). A longer pause needs the coach's approval.
+- Holiday status is private. Other clients never see it.
+- The client sets it. The coach can view it and edit it.
+
+Open decision for Ava and the coach: whether the paid plan's dates extend by the holiday days. That touches payments, so it needs its own approval. It is not decided here.
+
+Status: not started.
+
+Status for Motivation & Rewards overall: not started. Needs a design plan and owner approval.
 
 ---
 
