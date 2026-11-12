@@ -470,7 +470,6 @@ export default function ClientProfileScreen() {
                 {/* ── App section ── */}
                 <Text style={[s.sectionLabel, { marginTop: spacing.xl }]}>App</Text>
                 <View style={s.infoCard}>
-                    <InfoRow label="Role"    value="Client" />
                     <InfoRow label="Version" value="FitnessGuruSG 1.0" last />
                 </View>
 
@@ -493,10 +492,11 @@ export default function ClientProfileScreen() {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function InfoRow({ label, value, last }: { label: string; value: string; last?: boolean }) {
+    const unset = value === 'Not set';
     return (
         <View style={[ir.row, !last && ir.divider]}>
             <Text style={ir.label}>{label}</Text>
-            <Text style={ir.value} numberOfLines={3}>{value}</Text>
+            <Text style={[ir.value, unset && ir.unset]} numberOfLines={3}>{value}</Text>
         </View>
     );
 }
@@ -743,5 +743,9 @@ const ir = StyleSheet.create({
         fontWeight: '500',
         maxWidth: '65%',
         textAlign: 'right',
+    },
+    unset: {
+        color: colors.textTertiary,
+        fontWeight: '400',
     },
 });
