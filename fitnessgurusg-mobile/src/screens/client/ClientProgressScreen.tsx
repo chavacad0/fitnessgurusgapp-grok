@@ -9,6 +9,8 @@ import { useAuth } from '../../context/AuthContext';
 import { getCheckIns, getWorkoutHistory, getAuthHeaders } from '../../services/apiClient';
 import { BASE_URL } from '../../config/api';
 import CheckInCard, { CheckInCardData } from '../../components/CheckInCard';
+import EmptyState from '../../components/EmptyState';
+import Card from '../../components/Card';
 import { WorkoutHistoryEntry } from '../../types';
 import { colors, spacing, radius, typography, shadows } from '../../theme/theme';
 
@@ -121,11 +123,13 @@ export default function ClientProgressScreen() {
     const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistoryEntry[]>([]);
     const [bodyProfile,    setBodyProfile]    = useState<BodyProfile | null>(null);
     const [loading,        setLoading]        = useState(true);
+    const [refreshing,     setRefreshing]     = useState(false);
     const [error,          setError]          = useState<string | null>(null);
 
-    const fetchAll = useCallback(async () => {
-        if (!clientId) { setLoading(false); return; }
-        setLoading(true);
+    const fetchAll = useCallback(async (isRefresh = false) => {
+        if (!clientId) { setLoading(false); setRefreshing(false); return; }
+        if (isRefresh) setRefreshing(true);
+        else setLoading(true);
         setError(null);
 
         try {
@@ -162,6 +166,7 @@ export default function ClientProgressScreen() {
             setError(err.message || 'Failed to load progress.');
         } finally {
             setLoading(false);
+            setRefreshing(false);
         }
     }, [clientId]);
 
@@ -213,7 +218,7 @@ export default function ClientProgressScreen() {
     if (error) {
         return (
             <View style={s.centered}>
-                <Text style={s.errorEmoji}>⚠</Text>
+                <Ionicons name="cloud-offline-outline" size={36} color={colors.textSecondary} />
                 <Text style={s.errorMsg}>{error}</Text>
                 <TouchableOpacity style={s.retryBtn} onPress={fetchAll} activeOpacity={0.78}>
                     <Text style={s.retryText}>Try again</Text>
@@ -230,7 +235,7 @@ export default function ClientProgressScreen() {
             contentContainerStyle={s.content}
             showsVerticalScrollIndicator={false}
             refreshControl={
-                <RefreshControl refreshing={false} onRefresh={fetchAll} tintColor={colors.accent} />
+                <RefreshControl refreshing={refreshing} onRefresh={() => fetchAll(true)} tintColor={colors.accent} />
             }
         >
             {/* ─── Section 1: This Week Summary ──────────────────────────────── */}
@@ -244,10 +249,9 @@ export default function ClientProgressScreen() {
             {/* ─── Section 2: Workout Progress ───────────────────────────────── */}
             <Text style={s.sectionTitle}>Recent Workouts</Text>
             {recentWorkouts.length === 0 ? (
-                <View style={s.emptySection}>
-                    <Ionicons name="barbell-outline" size={24} color={colors.placeholder} />
-                    <Text style={s.emptySectionText}>No workouts logged yet</Text>
-                </View>
+                <Card style={s.sectionCard}>
+                    <EmptyState compact icon="barbell-outline" title="No workouts logged yet" />
+                </Card>
             ) : (
                 recentWorkouts.map((entry, idx) => {
                     const completedCount = entry.log!.exercise_logs.filter(el => el.completed).length;
@@ -309,21 +313,22 @@ export default function ClientProgressScreen() {
                     <Text style={s.profileHint}>Update in Profile tab</Text>
                 </View>
             ) : (
-                <View style={s.emptySection}>
-                    <Ionicons name="person-outline" size={24} color={colors.placeholder} />
-                    <Text style={s.emptySectionText}>No body profile set yet</Text>
-                </View>
+                <Card style={s.sectionCard}>
+                    <EmptyState compact icon="person-outline" title="No body profile set yet" />
+                </Card>
             )}
 
             {/* ─── Section 4: Progress Photos ────────────────────────────────── */}
             <Text style={s.sectionTitle}>Progress Photos</Text>
             {progressPhotos.length === 0 ? (
-                <View style={s.emptySection}>
-                    <Ionicons name="camera-outline" size={24} color={colors.placeholder} />
-                    <Text style={s.emptySectionText}>
-                        No progress photos yet — add photos in your daily check-in
-                    </Text>
-                </View>
+                <Card style={s.sectionCard}>
+                    <EmptyState
+                        compact
+                        icon="camera-outline"
+                        title="No progress photos yet"
+                        subtitle="Add photos in your daily check-in."
+                    />
+                </Card>
             ) : (
                 <View style={s.photoGrid}>
                     {progressPhotos.map((photo, idx) => (
@@ -342,13 +347,13 @@ export default function ClientProgressScreen() {
             {/* ─── Section 5: Check-in History ───────────────────────────────── */}
             <Text style={s.sectionTitle}>Check-in History</Text>
             {checkIns.length === 0 ? (
-                <View style={s.emptySection}>
-                    <Text style={s.emptyEmoji}>📋</Text>
-                    <Text style={s.emptyTitle}>No check-ins yet</Text>
-                    <Text style={s.emptyBody}>
-                        Head to the Home tab and submit your first check-in!
-                    </Text>
-                </View>
+                <Card style={s.sectionCard}>
+                    <EmptyState
+                        icon="clipboard-outline"
+                        title="No check-ins yet"
+                        subtitle="Head to the Home tab and submit your first check-in."
+                    />
+                </Card>
             ) : (
                 checkIns.map(ci => (
                     <CheckInCard key={ci._id} data={rawToCardData(ci)} compact={false} />
@@ -422,7 +427,6 @@ const s = StyleSheet.create({
         color: colors.textSecondary,
         marginTop: spacing.base,
     },
-    errorEmoji: { fontSize: 32, marginBottom: spacing.base },
     errorMsg: {
         ...typography.body,
         color: colors.errorText,
@@ -441,33 +445,7 @@ const s = StyleSheet.create({
         color: colors.textPrimary,
     },
 
-    // ── Empty sections ────────────────────────────────────────────────────────
-    emptySection: {
-        alignItems: 'center',
-        padding: spacing.xl,
-        backgroundColor: colors.surface,
-        borderRadius: radius.card,
-        borderWidth: 1,
-        borderColor: colors.border,
-        marginBottom: spacing.base,
-    },
-    emptySectionText: {
-        ...typography.body,
-        color: colors.textSecondary,
-        textAlign: 'center',
-        marginTop: spacing.sm,
-    },
-    emptyEmoji: { fontSize: 40, marginBottom: spacing.base },
-    emptyTitle: {
-        ...typography.h3,
-        color: colors.textPrimary,
-        marginBottom: spacing.xs,
-    },
-    emptyBody: {
-        ...typography.body,
-        color: colors.textSecondary,
-        textAlign: 'center',
-    },
+    sectionCard: { marginBottom: spacing.base, paddingVertical: spacing.sm },
 
     // ── Workout cards ─────────────────────────────────────────────────────────
     workoutCard: {

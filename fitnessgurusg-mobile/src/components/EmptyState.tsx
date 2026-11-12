@@ -49,6 +49,8 @@ type EmptyStateProps = {
     onAction?: () => void;
     /** Grow to fill the parent and centre the message. Useful inside a list. */
     fill?: boolean;
+    /** A short row for a section that is empty, instead of a tall centred block. */
+    compact?: boolean;
 } & (
     | { preset: EmptyPreset; title?: string }
     | { preset?: undefined; title: string }
@@ -61,24 +63,27 @@ export default function EmptyState(props: EmptyStateProps) {
     const title = props.title ?? preset?.title ?? '';
     const subtitle = props.subtitle ?? preset?.subtitle;
     const showAction = Boolean(props.actionLabel && props.onAction);
+    const compact = props.compact ?? false;
 
     return (
         <View
-            style={[s.wrap, props.fill && s.fill]}
+            style={[s.wrap, compact && s.wrapCompact, props.fill && s.fill]}
             accessible
             accessibilityLabel={subtitle ? `${title}. ${subtitle}` : title}
         >
-            <View style={s.iconCircle} importantForAccessibility="no">
-                <Ionicons name={icon} size={32} color={palette.teal} />
+            <View style={[s.iconCircle, compact && s.iconCircleCompact]} importantForAccessibility="no">
+                <Ionicons name={icon} size={compact ? 20 : 32} color={palette.teal} />
             </View>
-            <Text style={[s.title, fontStyle(fonts.headingSemibold, '600')]}>
-                {title}
-            </Text>
-            {subtitle ? (
-                <Text style={[s.subtitle, fontStyle(fonts.body, '400')]}>
-                    {subtitle}
+            <View style={compact ? s.compactText : undefined}>
+                <Text style={[compact ? s.titleCompact : s.title, fontStyle(fonts.headingSemibold, '600')]}>
+                    {title}
                 </Text>
-            ) : null}
+                {subtitle ? (
+                    <Text style={[s.subtitle, compact && s.subtitleCompact, fontStyle(fonts.body, '400')]}>
+                        {subtitle}
+                    </Text>
+                ) : null}
+            </View>
             {showAction ? (
                 <View style={s.action}>
                     <Button label={props.actionLabel!} onPress={props.onAction!} />
@@ -97,6 +102,33 @@ const s = StyleSheet.create({
     fill: {
         flex: 1,
         justifyContent: 'center',
+    },
+    wrapCompact: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: spacing.base,
+        paddingVertical: spacing.base,
+    },
+    iconCircleCompact: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        marginBottom: 0,
+        marginRight: spacing.md,
+    },
+    compactText: {
+        flex: 1,
+    },
+    titleCompact: {
+        fontSize: 15,
+        color: palette.gray900,
+        textAlign: 'left',
+    },
+    subtitleCompact: {
+        textAlign: 'left',
+        fontSize: 13,
+        lineHeight: 18,
+        marginTop: 2,
     },
     iconCircle: {
         width: 72,
