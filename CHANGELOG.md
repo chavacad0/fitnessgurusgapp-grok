@@ -19,7 +19,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ### Added
 
-- PROJECT_STATUS: all-in-one client app roadmap based on Trainerize comparison. Docs only. Nothing in the app is built.
+- [Pull request #8](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/8) — PROJECT_STATUS: all-in-one client app roadmap based on Trainerize comparison. Docs only. Nothing in the app is built.
 
 ## [2026-11-12]
 
