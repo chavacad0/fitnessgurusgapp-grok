@@ -21,6 +21,7 @@ import {
     Alert,
     Image,
     LayoutChangeEvent,
+    Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radius, typography, shadows } from '../theme/theme';
@@ -108,19 +109,17 @@ const MALE_AREAS: AreaConfig[] = [
 ];
 
 /**
- * measurement-figure.png viewBox is 168×252. Rings and leader lines are
- * drawn in the asset. Badge centres use the same coordinates so they stay
- * on the line ends when the image scales.
+ * measurement-figure.png is 465×786 (@3x of the approved crop).
+ * Circles are baked into the image. cx/cy/r are pixels in that crop,
+ * so the transparent hit areas stay on the numbers at any width.
  */
-const FIGURE_W = 168;
-const FIGURE_H = 252;
-const BADGE_CX = 150;
-const BADGE_R = 11;
-const RING_Y: Record<MeasurementArea, number> = {
-    neck: 53,
-    chest: 104,
-    waist: 136,
-    hips: 156,
+const FIGURE_W = 465;
+const FIGURE_H = 786;
+const MARKERS: Record<MeasurementArea, { cx: number; cy: number; r: number }> = {
+    neck:  { cx: 389,   cy: 139,   r: 24.5 },
+    chest: { cx: 389.5, cy: 224.5, r: 25 },
+    waist: { cx: 389.5, cy: 314.5, r: 25 },
+    hips:  { cx: 393,   cy: 400.5, r: 25.5 },
 };
 
 function MeasurementFigure({
@@ -148,34 +147,45 @@ function MeasurementFigure({
                 accessible={false}
             />
             {box.w > 0 && areas.map((area, index) => {
+                const marker = MARKERS[area.key];
                 const active = focusedArea === area.key;
-                const diameter = (BADGE_R * 2 * box.w) / FIGURE_W;
-                const left = ((BADGE_CX - BADGE_R) * box.w) / FIGURE_W;
-                const top = ((RING_Y[area.key] - BADGE_R) * box.h) / FIGURE_H;
+                const size = (marker.r * 2 * box.w) / FIGURE_W;
+                const left = ((marker.cx - marker.r) * box.w) / FIGURE_W;
+                const top = ((marker.cy - marker.r) * box.h) / FIGURE_H;
+                const ringPad = (3 * box.w) / FIGURE_W;
+                const ringSize = size + ringPad * 2;
                 return (
-                    <TouchableOpacity
-                        key={area.key}
-                        style={[
-                            fig.badge,
-                            {
-                                width: diameter,
-                                height: diameter,
-                                borderRadius: diameter / 2,
+                    <React.Fragment key={area.key}>
+                        {active && (
+                            <View
+                                pointerEvents="none"
+                                style={[
+                                    fig.ring,
+                                    {
+                                        left: left - ringPad,
+                                        top: top - ringPad,
+                                        width: ringSize,
+                                        height: ringSize,
+                                        borderRadius: ringSize / 2,
+                                    },
+                                ]}
+                            />
+                        )}
+                        <Pressable
+                            style={{
+                                position: 'absolute',
                                 left,
                                 top,
-                            },
-                            active && fig.badgeActive,
-                        ]}
-                        onPress={() => onSelect(area.key)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${area.label}, marker ${index + 1}`}
-                        accessibilityState={{ selected: active }}
-                    >
-                        <Text style={[fig.badgeText, { fontSize: Math.max(10, diameter * 0.48) }]}>
-                            {index + 1}
-                        </Text>
-                    </TouchableOpacity>
+                                width: size,
+                                height: size,
+                                borderRadius: size / 2,
+                            }}
+                            onPress={() => onSelect(area.key)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${area.label}, marker ${index + 1}`}
+                            accessibilityState={{ selected: active }}
+                        />
+                    </React.Fragment>
                 );
             })}
         </View>
@@ -184,19 +194,15 @@ function MeasurementFigure({
 
 const fig = StyleSheet.create({
     wrap: {
-        width: '44%',
-        maxWidth: 180,
+        width: '40%',
         aspectRatio: FIGURE_W / FIGURE_H,
     },
     image: { width: '100%', height: '100%' },
-    badge: {
+    ring: {
         position: 'absolute',
-        backgroundColor: colors.accent,
-        alignItems: 'center',
-        justifyContent: 'center',
+        borderWidth: 2,
+        borderColor: colors.primary,
     },
-    badgeActive: { backgroundColor: colors.primary },
-    badgeText: { color: colors.textOnPrimary, fontWeight: '700' },
 });
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -414,7 +420,7 @@ const MARKER_DEFAULT  = '#C5CDD5';
 const MARKER_ACTIVE   = colors.accent;
 
 const s = StyleSheet.create({
-    mgrid: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
+    mgrid: { flexDirection: 'row', gap: spacing.base, alignItems: 'center' },
     mTiles: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     mTile: {
         width: '47%',
@@ -433,7 +439,7 @@ const s = StyleSheet.create({
         backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
     },
     mNumText: { color: colors.textOnPrimary, fontSize: 9, fontWeight: '700' },
-    mLabel: { ...typography.caption, color: colors.textSecondary },
+    mLabel: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
     mValue: { ...typography.label, color: colors.accent },
     mUnit: { fontSize: 11, fontWeight: '500', color: colors.textSecondary },
     mUnset: { ...typography.caption, color: colors.textTertiary },
