@@ -757,6 +757,7 @@ export default function ClientHomeScreen() {
     // ── Core check-in state ────────────────────────────────────────────────────
     const [energy, setEnergy] = useState(5);
     const [hunger, setHunger] = useState(5);
+    const [openRating, setOpenRating] = useState<'energy' | 'appetite' | null>(null);
     const [steps,  setSteps]  = useState('');
     const [notes,  setNotes]  = useState('');
 
@@ -1141,16 +1142,40 @@ export default function ClientHomeScreen() {
 
                 <Text style={s.sectionLabel}>Today so far</Text>
                 <View style={s.miniRow}>
-                    <View style={s.mini}>
+                    <TouchableOpacity
+                        style={[s.mini, openRating === 'energy' && s.miniOn]}
+                        onPress={() => setOpenRating(current => current === 'energy' ? null : 'energy')}
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded: openRating === 'energy' }}
+                        accessibilityLabel={`Rate energy, currently ${energy} of 10, double tap to ${openRating === 'energy' ? 'collapse' : 'expand'}`}
+                    >
                         <Ionicons name="flash-outline" size={16} color={colors.accent} />
                         <Text style={s.miniLabel}>Energy</Text>
                         <Text style={s.miniValue}>{energy}<Text style={s.miniUnit}>/10</Text></Text>
-                    </View>
-                    <View style={s.mini}>
+                        <Ionicons
+                            name={openRating === 'energy' ? 'chevron-up' : 'chevron-down'}
+                            size={14}
+                            color={colors.accent}
+                            style={s.miniChevron}
+                        />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[s.mini, openRating === 'appetite' && s.miniOn]}
+                        onPress={() => setOpenRating(current => current === 'appetite' ? null : 'appetite')}
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded: openRating === 'appetite' }}
+                        accessibilityLabel={`Rate appetite, currently ${hunger} of 10, double tap to ${openRating === 'appetite' ? 'collapse' : 'expand'}`}
+                    >
                         <Ionicons name="restaurant-outline" size={16} color={colors.accent} />
                         <Text style={s.miniLabel}>Appetite</Text>
                         <Text style={s.miniValue}>{hunger}<Text style={s.miniUnit}>/10</Text></Text>
-                    </View>
+                        <Ionicons
+                            name={openRating === 'appetite' ? 'chevron-up' : 'chevron-down'}
+                            size={14}
+                            color={colors.accent}
+                            style={s.miniChevron}
+                        />
+                    </TouchableOpacity>
                     <View style={s.mini}>
                         <Ionicons name="footsteps-outline" size={16} color={colors.accent} />
                         <Text style={s.miniLabel}>Steps</Text>
@@ -1160,6 +1185,7 @@ export default function ClientHomeScreen() {
                     </View>
                 </View>
 
+                {openRating === 'energy' && (
                 <RatingRow
                     label="Energy"
                     question="How's your energy right now?"
@@ -1169,8 +1195,10 @@ export default function ClientHomeScreen() {
                     lowLabel="Drained"
                     highLabel="Energised"
                 />
+                )}
 
                 {/* UI label is "Appetite," but API field remains `hunger` for backward compatibility. */}
+                {openRating === 'appetite' && (
                 <RatingRow
                     label="Appetite"
                     question="How hungry or snacky do you feel today?"
@@ -1180,6 +1208,7 @@ export default function ClientHomeScreen() {
                     lowLabel="Not hungry"
                     highLabel="Very hungry"
                 />
+                )}
 
                 {/* ── Activity ──────────────────────────────────────────────── */}
                 <View style={s.sectionRow}>
@@ -1331,8 +1360,12 @@ const s = StyleSheet.create({
         backgroundColor: colors.surface,
         borderRadius: radius.card,
         padding: spacing.md,
+        borderWidth: 1.5,
+        borderColor: 'transparent',
         ...shadows.card,
     },
+    miniOn: { borderColor: colors.accent },
+    miniChevron: { position: 'absolute', top: 10, right: 10 },
     miniLabel: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
     miniValue: { ...typography.h3, color: colors.textPrimary, marginTop: 2 },
     miniUnit: { fontSize: 11, fontWeight: '500', color: colors.textTertiary },
