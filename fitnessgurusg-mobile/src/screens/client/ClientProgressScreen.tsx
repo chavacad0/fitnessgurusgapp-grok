@@ -220,7 +220,7 @@ export default function ClientProgressScreen() {
             <View style={s.centered}>
                 <Ionicons name="cloud-offline-outline" size={36} color={colors.textSecondary} />
                 <Text style={s.errorMsg}>{error}</Text>
-                <TouchableOpacity style={s.retryBtn} onPress={fetchAll} activeOpacity={0.78}>
+                <TouchableOpacity style={s.retryBtn} onPress={() => fetchAll()} activeOpacity={0.78}>
                     <Text style={s.retryText}>Try again</Text>
                 </TouchableOpacity>
             </View>
