@@ -4,13 +4,15 @@ import {
     TouchableOpacity, RefreshControl, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { getCheckIns, getWorkoutHistory, getAuthHeaders } from '../../services/apiClient';
 import { BASE_URL } from '../../config/api';
-import CheckInCard, { CheckInCardData } from '../../components/CheckInCard';
 import EmptyState from '../../components/EmptyState';
 import Card from '../../components/Card';
+import Button from '../../components/Button';
+import StatusBadge from '../../components/StatusBadge';
 import { WorkoutHistoryEntry } from '../../types';
 import { colors, spacing, radius, typography, shadows } from '../../theme/theme';
 
@@ -42,11 +44,14 @@ interface RawCheckIn {
 }
 
 interface BodyProfile {
-    height_cm?: number;
-    weight_kg?: number;
-    goal?: string;
-    experience_level?: string;
-    age?: number;
+    height_cm?: number | null;
+    weight_kg?: number | null;
+    waist_cm?: number | null;
+    goal?: string | null;
+    fitness_goal?: string | null;
+    experience_level?: string | null;
+    training_experience?: string | null;
+    age?: number | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -69,17 +74,6 @@ function formatShortDate(dateStr: string): string {
     } catch {
         return dateStr;
     }
-}
-
-function rawToCardData(ci: RawCheckIn): CheckInCardData {
-    return {
-        date: formatDate(ci.date),
-        energy: ci.metrics.energy,
-        hunger: ci.metrics.hunger,
-        steps: ci.metrics.stepsToday ?? null,
-        notes: ci.notes ?? null,
-        detectedFlagCount: ci.detectedFlags?.length ?? 0,
-    };
 }
 
 function computeStreak(checkIns: RawCheckIn[]): number {
@@ -117,6 +111,8 @@ function getThisWeekDates(): string[] {
 
 export default function ClientProgressScreen() {
     const { user } = useAuth();
+    const navigation = useNavigation<any>();
+    const insets = useSafeAreaInsets();
     const clientId = user?.clientId ?? user?.id ?? '';
 
     const [checkIns,       setCheckIns]       = useState<RawCheckIn[]>([]);
@@ -238,52 +234,77 @@ export default function ClientProgressScreen() {
                 <RefreshControl refreshing={refreshing} onRefresh={() => fetchAll(true)} tintColor={colors.accent} />
             }
         >
-            {/* ─── Section 1: This Week Summary ──────────────────────────────── */}
-            <View style={s.statsGrid}>
-                <StatTile label="Day Streak 🔥" value={streak} accent />
-                <StatTile label="Total Check-ins" value={total} />
-                <StatTile label="This Week" value={daysCheckedIn} suffix="days" />
-                <StatTile label="Workouts" value={workoutsThisWeek} suffix="this week" />
+            <View style={[s.hero, { paddingTop: insets.top + spacing.sm }]}>
+                <Text style={s.heroTitle}>My Progress</Text>
+            </View>
+            <View style={s.sheet}>
+            <View style={s.summaryCard}>
+                <Text style={s.summaryLine}>
+                    You checked in {daysCheckedIn} of the last 7 days.
+                </Text>
+                <View style={s.statsRow}>
+                    <View style={s.stat}>
+                        <Text style={s.statValue}>{streak}</Text>
+                        <Text style={s.statLabel}>Day streak</Text>
+                    </View>
+                    <View style={s.stat}>
+                        <Text style={s.statValue}>{total}</Text>
+                        <Text style={s.statLabel}>Check-ins</Text>
+                    </View>
+                    <View style={[s.stat, s.statLast]}>
+                        <Text style={s.statValue}>{workoutsThisWeek}</Text>
+                        <Text style={s.statLabel}>Workouts</Text>
+                    </View>
+                </View>
             </View>
 
-            {/* ─── Section 2: Workout Progress ───────────────────────────────── */}
-            <Text style={s.sectionTitle}>Recent Workouts</Text>
+            <View style={s.sectionHead}>
+                <Text style={s.sectionTitle}>Body metrics</Text>
+                <TouchableOpacity onPress={() => navigation.navigate('ClientProfile')} accessibilityRole="button">
+                    <Text style={s.sectionLink}>Update in Profile</Text>
+                </TouchableOpacity>
+            </View>
+            {bodyProfile && (bodyProfile.weight_kg != null || bodyProfile.waist_cm != null || bodyProfile.height_cm != null) ? (
+                <View style={s.metricCard}>
+                    {bodyProfile.weight_kg != null && (
+                        <MetricRow icon="scale-outline" label="Weight" value={`${bodyProfile.weight_kg}`} unit="kg" />
+                    )}
+                    {bodyProfile.waist_cm != null && (
+                        <MetricRow icon="body-outline" label="Waist" value={`${bodyProfile.waist_cm}`} unit="cm" />
+                    )}
+                    {bodyProfile.height_cm != null && (
+                        <MetricRow icon="person-outline" label="Height" value={`${bodyProfile.height_cm}`} unit="cm" last />
+                    )}
+                </View>
+            ) : (
+                <Card style={s.sectionCard}>
+                    <EmptyState compact icon="person-outline" title="No body profile set yet" />
+                </Card>
+            )}
+
+            <Text style={s.sectionTitle}>Recent workouts</Text>
             {recentWorkouts.length === 0 ? (
                 <Card style={s.sectionCard}>
                     <EmptyState compact icon="barbell-outline" title="No workouts logged yet" />
                 </Card>
             ) : (
-                recentWorkouts.map((entry, idx) => {
-                    const completedCount = entry.log!.exercise_logs.filter(el => el.completed).length;
+                <View style={s.listCard}>
+                {recentWorkouts.map((entry, idx) => {
                     const totalEx = entry.assignment.exercises.length;
                     return (
-                        <View key={entry.assignment._id ?? idx} style={s.workoutCard}>
-                            <View style={s.workoutCardHeader}>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={s.workoutCardTitle}>{entry.assignment.title}</Text>
-                                    <Text style={s.workoutCardDate}>{formatShortDate(entry.assignment.date)}</Text>
-                                </View>
-                                <View style={s.workoutCardBadge}>
-                                    <Text style={s.workoutCardBadgeText}>
-                                        {completedCount}/{totalEx} done
-                                    </Text>
-                                </View>
+                        <View key={entry.assignment._id ?? idx} style={[s.listRow, idx > 0 && s.listDivider]}>
+                            <View style={s.rowIcon}>
+                                <Ionicons name="barbell-outline" size={16} color={colors.accent} />
                             </View>
-                            <View style={s.workoutCardExercises}>
-                                {entry.assignment.exercises.slice(0, 3).map((ex, i) => (
-                                    <Text key={i} style={s.workoutCardExName}>
-                                        • {ex.name}
-                                    </Text>
-                                ))}
-                                {entry.assignment.exercises.length > 3 && (
-                                    <Text style={s.workoutCardMore}>
-                                        +{entry.assignment.exercises.length - 3} more
-                                    </Text>
-                                )}
+                            <View style={{ flex: 1 }}>
+                                <Text style={s.rowTitle}>{entry.assignment.title}</Text>
+                                <Text style={s.rowSub}>{formatShortDate(entry.assignment.date)} · {totalEx} exercise{totalEx === 1 ? '' : 's'}</Text>
                             </View>
+                            <StatusBadge variant="completed" label="Done" />
                         </View>
                     );
-                })
+                })}
+                </View>
             )}
 
             {/* ─── Section 3: Body Profile ───────────────────────────────────── */}
@@ -319,16 +340,29 @@ export default function ClientProgressScreen() {
             )}
 
             {/* ─── Section 4: Progress Photos ────────────────────────────────── */}
-            <Text style={s.sectionTitle}>Progress Photos</Text>
+            <Text style={s.sectionTitle}>Progress photos</Text>
             {progressPhotos.length === 0 ? (
-                <Card style={s.sectionCard}>
-                    <EmptyState
-                        compact
-                        icon="camera-outline"
-                        title="No progress photos yet"
-                        subtitle="Add photos in your daily check-in."
-                    />
-                </Card>
+                <View>
+                    <Card style={s.sectionCard}>
+                        <EmptyState
+                            icon="camera-outline"
+                            title="No progress photos yet"
+                            subtitle="Add up to 3 photos in your daily check-in."
+                        />
+                        <Button
+                            label="Add in today's check-in"
+                            onPress={() => navigation.navigate('ClientHome')}
+                            fullWidth
+                        />
+                    </Card>
+                    <View style={s.privacyCard}>
+                        <Ionicons name="lock-closed-outline" size={18} color={colors.accent} />
+                        <View style={{ flex: 1 }}>
+                            <Text style={s.privacyTitle}>Private to you and your coach</Text>
+                            <Text style={s.privacyBody}>Photos are never shown to other clients.</Text>
+                        </View>
+                    </View>
+                </View>
             ) : (
                 <View style={s.photoGrid}>
                     {progressPhotos.map((photo, idx) => (
@@ -345,7 +379,7 @@ export default function ClientProgressScreen() {
             )}
 
             {/* ─── Section 5: Check-in History ───────────────────────────────── */}
-            <Text style={s.sectionTitle}>Check-in History</Text>
+            <Text style={s.sectionTitle}>Check-in history</Text>
             {checkIns.length === 0 ? (
                 <Card style={s.sectionCard}>
                     <EmptyState
@@ -355,15 +389,46 @@ export default function ClientProgressScreen() {
                     />
                 </Card>
             ) : (
-                checkIns.map(ci => (
-                    <CheckInCard key={ci._id} data={rawToCardData(ci)} compact={false} />
-                ))
+                <View style={s.listCard}>
+                    {checkIns.map((ci, idx) => (
+                        <View key={ci._id} style={[s.listRow, idx > 0 && s.listDivider]}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={s.rowTitle}>{formatDate(ci.date)}</Text>
+                                <Text style={s.rowSub}>
+                                    Energy {ci.metrics.energy} · Appetite {ci.metrics.hunger}
+                                    {ci.metrics.stepsToday != null ? ` · ${ci.metrics.stepsToday.toLocaleString()} steps` : ''}
+                                </Text>
+                            </View>
+                        </View>
+                    ))}
+                </View>
             )}
+            </View>
         </ScrollView>
     );
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────
+
+function MetricRow({ icon, label, value, unit, last }: {
+    icon: React.ComponentProps<typeof Ionicons>['name'];
+    label: string;
+    value: string;
+    unit: string;
+    last?: boolean;
+}) {
+    return (
+        <View style={[s.metricRow, !last && s.listDivider]}>
+            <View style={s.rowIcon}>
+                <Ionicons name={icon} size={16} color={colors.accent} />
+            </View>
+            <View style={{ flex: 1 }}>
+                <Text style={s.rowSub}>{label}</Text>
+                <Text style={s.metricValue}>{value} <Text style={s.metricUnit}>{unit}</Text></Text>
+            </View>
+        </View>
+    );
+}
 
 function StatTile({ label, value, suffix, accent }: {
     label: string; value: number; suffix?: string; accent?: boolean;
@@ -390,11 +455,62 @@ function ProfilePill({ label, value }: { label: string; value: string }) {
 
 const s = StyleSheet.create({
     scroll: { flex: 1, backgroundColor: colors.background },
-    content: {
-        paddingHorizontal: spacing.base,
-        paddingTop: spacing.xl,
-        paddingBottom: spacing.section * 2,
+    content: { paddingBottom: spacing.section * 2 },
+    hero: {
+        backgroundColor: colors.primary,
+        paddingHorizontal: spacing.lg,
+        paddingBottom: spacing.xxl,
     },
+    heroTitle: { ...typography.h2, color: colors.textOnPrimary },
+    sheet: { marginTop: -spacing.lg, paddingHorizontal: spacing.base },
+    summaryCard: {
+        backgroundColor: colors.surface,
+        borderRadius: radius.card,
+        padding: spacing.base,
+        marginBottom: spacing.md,
+        ...shadows.card,
+    },
+    summaryLine: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.md },
+    statsRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.borderLight, paddingTop: spacing.md },
+    stat: { flex: 1, alignItems: 'center', borderRightWidth: 1, borderRightColor: colors.borderLight },
+    statLast: { borderRightWidth: 0 },
+    statValue: { ...typography.h2, color: colors.textPrimary },
+    statLabel: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+    metricCard: {
+        backgroundColor: colors.surface,
+        borderRadius: radius.card,
+        paddingHorizontal: spacing.base,
+        marginBottom: spacing.md,
+        ...shadows.card,
+    },
+    metricRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md },
+    metricValue: { ...typography.h3, color: colors.textPrimary },
+    metricUnit: { fontSize: 12, fontWeight: '500', color: colors.textSecondary },
+    sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    sectionLink: { ...typography.label, color: colors.accent, marginBottom: spacing.sm },
+    listCard: {
+        backgroundColor: colors.surface,
+        borderRadius: radius.card,
+        paddingHorizontal: spacing.base,
+        marginBottom: spacing.md,
+        ...shadows.card,
+    },
+    listRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md },
+    listDivider: { borderTopWidth: 1, borderTopColor: colors.borderLight },
+    rowIcon: {
+        width: 34, height: 34, borderRadius: 10,
+        backgroundColor: colors.accentSubtle,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    rowTitle: { ...typography.label, color: colors.textPrimary },
+    rowSub: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+    privacyCard: {
+        flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+        backgroundColor: colors.surface, borderRadius: radius.card,
+        padding: spacing.base, marginBottom: spacing.md, ...shadows.card,
+    },
+    privacyTitle: { ...typography.label, color: colors.textPrimary },
+    privacyBody: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     centered: {
         flex: 1,
         justifyContent: 'center',

@@ -25,7 +25,7 @@ import {
     Alert, Modal, RefreshControl, TextInput,
     KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
@@ -109,6 +109,14 @@ function fmt(time: string): string {
     return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
+function durationLabel(start: string, end: string): string {
+    const [sh, sm] = start.split(':').map(Number);
+    const [eh, em] = end.split(':').map(Number);
+    const mins = (eh * 60 + em) - (sh * 60 + sm);
+    if (!Number.isFinite(mins) || mins <= 0) return '';
+    return `${mins} min`;
+}
+
 // ─── Calendar Strip ───────────────────────────────────────────────────────────
 
 interface CalendarStripProps {
@@ -190,7 +198,7 @@ const cal = StyleSheet.create({
         gap: 2,
     },
     cellSelected: {
-        backgroundColor: ACCENT,
+        backgroundColor: colors.primary,
     },
     cellToday: {
         borderWidth: 1,
@@ -405,6 +413,7 @@ const cc = StyleSheet.create({
 
 export default function ClientBookingScreen() {
     const { updateUser } = useAuth();
+    const insets = useSafeAreaInsets();
     const dates = buildDateWindow();
 
     const [selectedDate, setSelectedDate] = useState<string>(tomorrowSGT());
@@ -541,6 +550,10 @@ export default function ClientBookingScreen() {
     // ── Main render ────────────────────────────────────────────────────────────
     return (
         <SafeAreaView style={s.root} edges={['bottom']}>
+            <View style={[s.hero, { paddingTop: insets.top + spacing.sm }]}>
+                <Text style={s.heroTitle}>Book a session</Text>
+                <Text style={s.heroSub}>Pick a day with a green dot.</Text>
+            </View>
 
             {/* ── Calendar strip ───────────────────────────────────────────── */}
             <CalendarStrip
@@ -579,7 +592,7 @@ export default function ClientBookingScreen() {
                     <EmptyState
                         compact
                         icon="calendar-outline"
-                        title="No available sessions on this date."
+                        title={`No open slots on ${fmtDateShort(selectedDate)}`}
                         subtitle={availableDates.size > 0
                             ? 'Check dates with a green dot for open slots.'
                             : "Your coach hasn't posted any open slots yet. Pull down to refresh."}
@@ -598,14 +611,17 @@ export default function ClientBookingScreen() {
                                 <View style={s.slotLeft}>
                                     <View style={s.slotDot} />
                                     <View>
-                                        <Text style={s.slotTime}>
-                                            {fmt(slot.start_time)} – {fmt(slot.end_time)}
+                                        <Text style={s.slotTime}>{fmt(slot.start_time)}</Text>
+                                        <Text style={s.slotSub}>
+                                            {durationLabel(slot.start_time, slot.end_time) || 'Available'}
                                         </Text>
-                                        <Text style={s.slotSub}>Available</Text>
                                     </View>
                                 </View>
-                                <View style={s.bookBtn}>
-                                    <Text style={s.bookBtnTxt}>Book</Text>
+                                <View style={s.slotActions}>
+                                    <KitStatusBadge variant="open" label="Available" />
+                                    <View style={s.bookBtn}>
+                                        <Text style={s.bookBtnTxt}>Book</Text>
+                                    </View>
                                 </View>
                             </TouchableOpacity>
                         ))}
@@ -655,6 +671,13 @@ export default function ClientBookingScreen() {
 
 const s = StyleSheet.create({
     root:    { flex: 1, backgroundColor: colors.background },
+    hero: {
+        backgroundColor: colors.primary,
+        paddingHorizontal: spacing.lg,
+        paddingBottom: spacing.lg,
+    },
+    heroTitle: { ...typography.h2, color: colors.textOnPrimary },
+    heroSub: { ...typography.body, color: 'rgba(255,255,255,0.78)', marginTop: 4 },
     scroll:  { flex: 1 },
     content: { padding: spacing.base },
 
@@ -703,8 +726,9 @@ const s = StyleSheet.create({
     },
     slotTime: { ...typography.body, fontWeight: '700', color: colors.textPrimary },
     slotSub:  { ...typography.caption, color: GREEN, fontWeight: '600' },
+    slotActions: { alignItems: 'flex-end', gap: spacing.sm },
     bookBtn:  {
-        backgroundColor: ACCENT,
+        backgroundColor: colors.accent,
         borderRadius: radius.md,
         paddingHorizontal: spacing.base,
         paddingVertical: spacing.sm,
@@ -759,7 +783,7 @@ const s = StyleSheet.create({
     infoText:  { ...typography.body, color: colors.textPrimary },
     sheetNote: { ...typography.caption, color: colors.textSecondary, textAlign: 'center', lineHeight: 18 },
     confirmBtn: {
-        backgroundColor: GREEN,
+        backgroundColor: colors.accent,
         borderRadius: radius.card,
         height: 48,
         alignItems: 'center',

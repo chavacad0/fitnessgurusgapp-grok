@@ -146,35 +146,50 @@ const pc = StyleSheet.create({
 
 // ─── Active plan progress card ────────────────────────────────────────────────
 
+function daysLeft(iso: string): number {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const exp = new Date(`${iso}T00:00:00`);
+    exp.setHours(0, 0, 0, 0);
+    return Math.round((exp.getTime() - today.getTime()) / 86_400_000);
+}
+
 function ActivePlanCard({ plan }: { plan: ActivePlan }) {
     const pct = plan.sessions_total > 0
         ? (plan.sessions_used / plan.sessions_total) * 100
         : 0;
+    const leftDays = daysLeft(plan.expiry_date);
+    const expiring = leftDays >= 0 && leftDays <= 14;
 
     return (
         <View style={ap.card}>
-            <Text style={ap.planName}>{plan.plan_name}</Text>
-            <View style={ap.badgeRow}>
-                <StatusBadge variant="activePlan" />
+            <View style={ap.topRow}>
+                <View style={{ flex: 1 }}>
+                    <Text style={ap.kicker}>Your plan</Text>
+                    <Text style={ap.planName}>{plan.plan_name}</Text>
+                </View>
+                <StatusBadge variant={expiring ? 'expiringSoon' : 'activePlan'} />
             </View>
 
-            {/* Session progress */}
-            <View style={ap.progressSection}>
-                <View style={ap.progressHeader}>
+            <View style={ap.progressRow}>
+                <View style={[ap.ring, expiring && ap.ringSoon]}>
+                    <Text style={ap.ringNum}>{plan.sessions_remaining}</Text>
+                    <Text style={ap.ringLabel}>sessions left</Text>
+                </View>
+                <View style={{ flex: 1 }}>
                     <Text style={ap.progressLabel}>Sessions used</Text>
                     <Text style={ap.progressCount}>
-                        {plan.sessions_used} / {plan.sessions_total}
+                        {plan.sessions_used} of {plan.sessions_total}
+                    </Text>
+                    <View style={ap.bar}>
+                        <View style={[ap.fill, expiring && ap.fillSoon, { width: `${Math.min(pct, 100)}%` as any }]} />
+                    </View>
+                    <Text style={ap.remaining}>
+                        {leftDays >= 0 ? `${leftDays} day${leftDays === 1 ? '' : 's'} left on this plan` : 'This plan has ended'}
                     </Text>
                 </View>
-                <View style={ap.bar}>
-                    <View style={[ap.fill, { width: `${pct}%` as any }]} />
-                </View>
-                <Text style={ap.remaining}>
-                    <Text style={ap.remainingNum}>{plan.sessions_remaining}</Text> sessions remaining
-                </Text>
             </View>
 
-            {/* Dates */}
             <View style={ap.dates}>
                 <View style={ap.dateItem}>
                     <Text style={ap.dateLabel}>Started</Text>
@@ -197,20 +212,25 @@ function fmtDate(iso: string): string {
 const ap = StyleSheet.create({
     card: {
         backgroundColor: colors.surface,
-        borderRadius: radius.cardLg,
-        borderWidth: 1.5,
-        borderColor: colors.accent,
-        padding: spacing.xl,
-        marginBottom: spacing.xl,
-        ...shadows.cardElevated,
+        borderRadius: radius.card,
+        padding: spacing.base,
+        marginBottom: spacing.md,
+        ...shadows.card,
     },
-    planName:    { ...typography.h2, color: colors.textPrimary, marginBottom: spacing.xs },
-    badgeRow:    { marginBottom: spacing.base },
-
-    progressSection: { marginBottom: spacing.base },
-    progressHeader:  { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.xs },
-    progressLabel:   { ...typography.label, color: colors.textSecondary },
-    progressCount:   { ...typography.label, color: colors.textPrimary, fontWeight: '600' },
+    topRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.sm },
+    kicker: { fontSize: 11, fontWeight: '600', letterSpacing: 0.5, color: colors.textSecondary, textTransform: 'uppercase' },
+    planName:    { ...typography.h2, color: colors.textPrimary, marginTop: 2 },
+    progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.base, marginTop: spacing.base },
+    ring: {
+        width: 96, height: 96, borderRadius: 48,
+        borderWidth: 8, borderColor: colors.accent,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    ringSoon: { borderColor: colors.amberText },
+    ringNum: { ...typography.h2, color: colors.textPrimary },
+    ringLabel: { fontSize: 10, color: colors.textSecondary, textAlign: 'center' },
+    progressLabel:   { ...typography.caption, color: colors.textSecondary },
+    progressCount:   { ...typography.h3, color: colors.textPrimary, marginTop: 2 },
     bar: {
         height: 8,
         backgroundColor: colors.border,
@@ -223,6 +243,7 @@ const ap = StyleSheet.create({
         backgroundColor: colors.accent,
         borderRadius: 4,
     },
+    fillSoon: { backgroundColor: colors.amberText },
     remaining:    { ...typography.body,  color: colors.textSecondary },
     remainingNum: { ...typography.bodyLg, color: colors.textPrimary, fontWeight: '700' },
 
@@ -387,10 +408,13 @@ export default function ClientPlanScreen() {
     return (
         <ScrollView
             style={s.root}
-            contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 40 }]}
+            contentContainerStyle={[s.content, { paddingTop: 0, paddingBottom: insets.bottom + 40 }]}
             showsVerticalScrollIndicator={false}
         >
-            <Text style={s.screenTitle}>My Plan</Text>
+            <View style={[s.hero, { paddingTop: insets.top + spacing.sm }]}>
+                <Text style={s.heroTitle}>My Plan</Text>
+                <Text style={s.heroSub}>Your coaching package and sessions.</Text>
+            </View>
 
             {/* ── ACTIVE PLAN ─────────────────────────────────────────── */}
             {(planStatus === 'active' || activePlan) && activePlan && (
@@ -588,6 +612,14 @@ const s = StyleSheet.create({
     retryTxt: { ...typography.body, color: '#fff', fontWeight: '700' },
 
     statusRow: { marginBottom: spacing.sm },
+    hero: {
+        backgroundColor: colors.primary,
+        paddingHorizontal: spacing.lg,
+        paddingBottom: spacing.xl,
+        marginBottom: spacing.base,
+    },
+    heroTitle: { ...typography.h2, color: colors.textOnPrimary },
+    heroSub: { ...typography.body, color: 'rgba(255,255,255,0.78)', marginTop: 4 },
     screenTitle: {
         ...typography.h1,
         color: colors.textPrimary,
