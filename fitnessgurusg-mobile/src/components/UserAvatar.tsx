@@ -1,39 +1,37 @@
 /**
- * UserAvatar — Reusable avatar component for FitnessGuruSG.
+ * UserAvatar — photo, or initials when there is no photo.
  *
- * Renders a circular avatar with initials derived from the user's name.
- * Falls back to a "?" if no name is provided.
+ * If the photo address is missing or the image fails to load, the initials
+ * stay visible. A one-word name uses its first letter. Two or more words
+ * use the first and last initials ("Ava Gonzales" → "AG").
  *
- * Sizes: 'sm' (32), 'md' (40), 'lg' (56) — mapped to componentSize tokens.
+ *   <UserAvatar name="Ava Gonzales" />
+ *   <UserAvatar name="Ava Gonzales" imageUri={photoUrl} size={80} />
  *
- * Usage:
- *   <UserAvatar name="Rachel Lim" />
- *   <UserAvatar name="Marcus Ong" size="lg" />
- *   <UserAvatar name="Daniel Teo" size="sm" bgColor={colors.warningBg} textColor={colors.amberText} />
+ * `Avatar` is the same component.
  */
 
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { colors, componentSize, typography } from '../theme/theme';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import React, { useState } from 'react';
+import { View, Text, Image, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import { colors, componentSize } from '../theme/theme';
+import { fontStyle, useKitFonts } from '../theme/fonts';
 
 type AvatarSize = 'sm' | 'md' | 'lg';
 
 interface UserAvatarProps {
-    /** User's display name — initials are derived from this */
+    /** Display name. Initials are taken from this. */
     name: string;
-    /** Size preset — defaults to 'md' (40px) */
-    size?: AvatarSize;
-    /** Override background color */
+    /** Preset, or a width and height in pixels. */
+    size?: AvatarSize | number;
+    /** Remote or local image address. Initials show when this is empty or fails. */
+    imageUri?: string | null;
+    /** Override the circle colour. */
     bgColor?: string;
-    /** Override initials text color */
+    /** Override the initials colour. */
     textColor?: string;
-    /** Optional accessibility label override */
     accessibilityLabel?: string;
+    style?: StyleProp<ViewStyle>;
 }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const SIZE_MAP: Record<AvatarSize, number> = {
     sm: componentSize.avatarSm,
@@ -47,25 +45,34 @@ const FONT_MAP: Record<AvatarSize, number> = {
     lg: 20,
 };
 
-function getInitials(name: string): string {
-    if (!name || !name.trim()) return '?';
-    const parts = name.trim().split(/\s+/);
+export function getInitials(name: string): string {
+    const trimmed = name.trim();
+    if (!trimmed) return '?';
+    const parts = trimmed.split(/\s+/).filter(Boolean);
     if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+    const first = parts[0].charAt(0);
+    const last = parts[parts.length - 1].charAt(0);
+    return (first + last).toUpperCase();
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
-export default function UserAvatar({
+function UserAvatar({
     name,
     size = 'md',
+    imageUri,
     bgColor = colors.avatarBg,
     textColor = colors.avatarText,
     accessibilityLabel,
+    style,
 }: UserAvatarProps) {
-    const dimension = SIZE_MAP[size];
-    const fontSize = FONT_MAP[size];
+    const fonts = useKitFonts();
+    const dimension = typeof size === 'number' ? size : SIZE_MAP[size];
+    const fontSize = typeof size === 'number'
+        ? Math.max(12, Math.round(dimension * 0.35))
+        : FONT_MAP[size];
     const initials = getInitials(name);
+    const uri = imageUri?.trim() ?? '';
+    const [failedUri, setFailedUri] = useState<string | null>(null);
+    const showPhoto = uri.length > 0 && failedUri !== uri;
 
     return (
         <View
@@ -77,31 +84,46 @@ export default function UserAvatar({
                     borderRadius: dimension / 2,
                     backgroundColor: bgColor,
                 },
+                style,
             ]}
+            accessible
             accessibilityRole="image"
-            accessibilityLabel={accessibilityLabel ?? `${name || 'User'}'s avatar`}
+            accessibilityLabel={accessibilityLabel ?? (name.trim() ? `${name.trim()}'s photo` : 'Avatar')}
         >
             <Text
                 style={[
                     s.initials,
                     { fontSize, color: textColor },
+                    fontStyle(fonts.headingSemibold, '600'),
                 ]}
             >
                 {initials}
             </Text>
+            {showPhoto ? (
+                <Image
+                    source={{ uri }}
+                    style={s.photo}
+                    onError={() => setFailedUri(uri)}
+                    accessibilityIgnoresInvertColors
+                />
+            ) : null}
         </View>
     );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+export default UserAvatar;
+export { UserAvatar as Avatar };
 
 const s = StyleSheet.create({
     circle: {
         alignItems: 'center',
         justifyContent: 'center',
+        overflow: 'hidden',
     },
     initials: {
-        fontWeight: '700',
-        includeFontPadding: false, // Android: remove extra padding
+        includeFontPadding: false,
+    },
+    photo: {
+        ...StyleSheet.absoluteFillObject,
     },
 });
