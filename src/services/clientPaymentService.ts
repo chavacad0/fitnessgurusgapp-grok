@@ -154,6 +154,16 @@ export async function createClientPaymentIntent(params: {
         );
     }
 
+    // A plan purchase is tied to a coach. Callers must not create a payment
+    // until the client has connected with a verified invitation code.
+    const coachId = params.coach_id;
+    if (!coachId) {
+        throw Object.assign(
+            new Error('Please connect to your coach with an invitation code before purchasing a plan.'),
+            { statusCode: 400 },
+        );
+    }
+
     // ── Idempotency guard ─────────────────────────────────────────────────────
     // If a pending payment already exists for this client+plan, reuse it.
     // This prevents double-charging when the mobile calls create twice
@@ -184,7 +194,7 @@ export async function createClientPaymentIntent(params: {
     // 1. Create Payment record (status: 'pending') so we have an ID before calling provider
     const payment = await createPayment({
         client_id:        params.client_id,
-        coach_id:         params.coach_id,
+        coach_id:         coachId,
         plan_id:          plan.id,
         plan_name:        plan.name,
         amount_sgd:       plan.price_sgd,
@@ -279,6 +289,13 @@ export async function confirmClientPayment(params: {
             sessions_remaining: plan?.sessions,
         };
     }
+    const coachId = params.coach_id;
+    if (!coachId) {
+        throw Object.assign(
+            new Error('Please connect to your coach with an invitation code before activating a plan.'),
+            { statusCode: 400 },
+        );
+    }
 
     // 2. Verify with provider
     const verification = await provider.verifyPayment(params.intent_id);
@@ -299,7 +316,7 @@ export async function confirmClientPayment(params: {
     const todaySGT   = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
     const expiryDate = computeExpiryDate(plan.expiry_days);
 
-    const assignedPlan = await assignPlanToClient(params.client_id, params.coach_id, {
+    const assignedPlan = await assignPlanToClient(params.client_id, coachId, {
         plan_name:      plan.name,
         sessions_total: plan.sessions,
         start_date:     todaySGT,
@@ -307,7 +324,7 @@ export async function confirmClientPayment(params: {
     });
 
     // Mark payment confirmed after plan is live
-    await confirmPaymentRecord(params.payment_id, params.coach_id, assignedPlan._id);
+    await confirmPaymentRecord(params.payment_id, coachId, assignedPlan._id);
 
     // Update client plan_status → active
     await updateClientPlanStatus(params.client_id, {

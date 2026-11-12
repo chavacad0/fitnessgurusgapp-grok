@@ -266,20 +266,35 @@ export async function registerCoach(
 /**
  * POST /api/auth/client-register — self-registration for clients.
  *
- * SINGLE-COACH ARCHITECTURE:
- *  No invite code needed. The backend auto-assigns the single coach.
+ * An invite code is optional. When present, the backend verifies it and links
+ * the new client to that coach. When omitted, the client is created with no
+ * coach and connects later via POST /api/auth/connect-coach.
+ * A coach id is never sent — the server decides the link from the code alone.
  *
- * Body: { name, email, password }
- * Returns: { success, token, client: { _id, id, email, name, coach_id } }
+ * Body: { name, email, password, inviteCode? }
+ * Returns: { success, token, client }
  */
 export async function registerClient(params: {
-    name:     string;
-    email:    string;
-    password: string;
-}): Promise<{ success: boolean; token: string; client: { _id: string; id: string; email: string; name: string; coach_id: string } }> {
+    name:        string;
+    email:       string;
+    password:    string;
+    inviteCode?: string;
+}): Promise<{
+    success: boolean;
+    token:   string;
+    client: {
+        _id:       string;
+        id:        string;
+        email:     string;
+        name:      string;
+        coach_id:  string | null;
+        has_coach: boolean;
+    };
+}> {
     const url = `${BASE_URL}/api/auth/client-register`;
     console.log('[CLIENT REGISTER] request URL:', url);
 
+    const inviteCode = params.inviteCode?.trim();
     const response = await fetch(url, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -287,6 +302,7 @@ export async function registerClient(params: {
             name:     params.name,
             email:    params.email,
             password: params.password,
+            ...(inviteCode ? { inviteCode } : {}),
         }),
     });
 

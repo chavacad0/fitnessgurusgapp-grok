@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"],
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "fitnessgurusg-mobile",
+    "supabase",
+    "local-db",
+    "src/legacy-sql",
+    "src/seeds",
+    "src/scripts",
+    "src/test-mongo.ts",
+    "src/scheduler.ts"
+  ]
+}

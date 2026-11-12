@@ -8,26 +8,29 @@ import { isLegacyCoachDocClientToken } from './clientAuthMiddleware';
  * Returns 401 on missing or invalid token.
  *
  * req.coach fields:
- *   sub      — MongoDB _id of the authenticated user (coaches and clients)
+ *   sub      — coaches._id for coach tokens.
+ *              clients.id (UUID) for client tokens issued by current login,
+ *              Google sign-in, and self-registration.
+ *              Older self-registration tokens still carry the Mongo _id here.
  *   email    — user email
  *   role     — 'coach' | 'client'
- *   clientId — UUID from the clients collection (clients only).
- *              Populated from the clientId JWT claim issued at client-login.
- *              Undefined for coach tokens.
+ *   clientId — UUID from the clients collection, copied from the clientId JWT
+ *              claim. Present on older client self-registration tokens.
+ *              Undefined for coach tokens and for current client tokens
+ *              (those put the UUID in `sub` instead).
  *
- * WHY clientId is separate from sub:
- *   Client JWTs have sub = MongoDB _id AND clientId = UUID (clients.id field).
- *   Routes that validate ownership query { id: clientId, coach_id: ... } — they
- *   use the UUID, not the ObjectId. Without forwarding clientId here, routes are
- *   forced to compare sub (ObjectId) against a UUID, which never matches.
+ * WHY clientId is forwarded separately from sub:
+ *   Older client JWTs have sub = MongoDB _id AND clientId = UUID (clients.id).
+ *   Routes that validate ownership must accept either, or those sessions 403
+ *   on their own data. Current tokens put the UUID in sub and omit the claim.
  */
 
 export interface AuthenticatedRequest extends Request {
     coach?: {
-        sub:       string;   // MongoDB _id of the authenticated user
+        sub:       string;   // coach: coaches._id. client: clients.id UUID (older client tokens: Mongo _id)
         email:     string;
         role:      string;   // 'coach' | 'client'
-        clientId?: string;   // UUID from clients.id — clients only, undefined for coaches
+        clientId?: string;   // UUID from clients.id — older client tokens only, undefined for coaches
     };
 }
 

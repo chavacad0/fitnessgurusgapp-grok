@@ -28,6 +28,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, radius, typography, shadows } from '../../theme/theme';
 import {
     getClientAvailableSlots,
@@ -425,6 +426,7 @@ const cc = StyleSheet.create({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ClientBookingScreen() {
+    const { updateUser } = useAuth();
     const dates = buildDateWindow();
 
     const [selectedDate, setSelectedDate] = useState<string>(tomorrowSGT());
@@ -547,7 +549,11 @@ export default function ClientBookingScreen() {
                             />
                         }
                     >
-                        <ConnectCoachCard onConnected={() => loadData()} />
+                        <ConnectCoachCard onConnected={() => {
+                            // Remember the link so the next launch opens Home, not this screen.
+                            updateUser({ hasCoach: true }).catch(() => { /* non-fatal */ });
+                            loadData();
+                        }} />
                     </ScrollView>
                 </KeyboardAvoidingView>
             </SafeAreaView>

@@ -6,6 +6,7 @@ import ClientProgressScreen from '../screens/client/ClientProgressScreen';
 import ClientProfileScreen  from '../screens/client/ClientProfileScreen';
 import ClientPlanScreen     from '../screens/client/ClientPlanScreen';
 import ClientBookingScreen  from '../screens/client/ClientBookingScreen';
+import { useAuth } from '../context/AuthContext';
 import { colors, typography } from '../theme/theme';
 
 /**
@@ -33,8 +34,14 @@ const CLIENT_TABS = [
 ] as const;
 
 export default function ClientAppTabs() {
+    const { user } = useAuth();
+    // A client with no coach lands on Book, which shows the invite-code screen.
+    // Returning clients (and anyone whose session predates hasCoach) open Home.
+    const initialRouteName = user?.hasCoach === false ? 'ClientBook' : 'ClientHome';
+
     return (
         <Tab.Navigator
+            initialRouteName={initialRouteName}
             screenOptions={({ route }) => ({
                 tabBarIcon: ({ focused, color, size }) => {
                     const tab = CLIENT_TABS.find(t => t.name === route.name);

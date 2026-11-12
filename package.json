@@ -5,6 +5,8 @@
   "main": "src/test-db.ts",
   "scripts": {
     "test": "tsx src/test-mongo.ts",
+    "test:auth": "tsx src/scripts/test-auth-regression.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.server.json",
     "test:legacy-sql": "tsx src/legacy-sql/test-db.ts",
     "dev": "tsx watch src/server.ts",
     "db:reset": "rm -f local-db/database.db && tsx local-db/init.ts",
