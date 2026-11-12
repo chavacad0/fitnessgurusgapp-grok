@@ -13,6 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ## [Unreleased]
 
+### Changed
+
+- Welcome is a full-screen navy screen with a white FG tile, a white Log in button, and an outlined Sign up button. The feature chips are gone. Log in puts the back button on its own row, uses line icons for Client and Coach, and shows the coach note under that switch. The Google button uses the coloured G. Signing in works the same way.
+
 ### In review
 
 - [Pull request #7](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/7) — Docs only. Inside the Motivation & Rewards future plan, `PROJECT_STATUS.md` adds Holiday mode (pause): the client sets dates, the streak freezes, reminders pause, and the coach sees a calm holiday badge. Whether paid plan dates extend is an open decision. Nothing in the app is built. The audit log is unchanged.

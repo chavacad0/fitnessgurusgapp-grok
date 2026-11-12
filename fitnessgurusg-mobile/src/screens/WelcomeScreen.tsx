@@ -1,10 +1,10 @@
 import React from 'react';
 import {
-    View, Text, StyleSheet, TouchableOpacity,
+    View, Text, StyleSheet, TouchableOpacity, Image, StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { colors, spacing, radius, typography, componentSize, shadows } from '../theme/theme';
+import { colors, spacing, radius, typography, componentSize } from '../theme/theme';
 
 /**
  * WelcomeScreen — the app's entry point.
@@ -34,201 +34,157 @@ type Props = {
 
 export default function WelcomeScreen({ navigation }: Props) {
     return (
-        <SafeAreaView style={s.root}>
+        <View style={s.root}>
+            <StatusBar barStyle="light-content" />
+            <Image
+                source={require('../../assets/welcome-bg.png')}
+                style={StyleSheet.absoluteFill}
+                resizeMode="cover"
+                accessible={false}
+            />
+            <SafeAreaView style={s.safe}>
 
-            {/* ── Brand hero ─────────────────────────────────────────────────── */}
-            <View style={s.hero}>
-
-                {/* Monogram mark */}
-                <View style={s.mark}>
-                    <Text style={s.markFG}>FG</Text>
-                    <Text style={s.markSG}>SG</Text>
-                </View>
-
-                {/* Brand identity */}
-                <View style={s.identity}>
+                <View style={s.hero}>
+                    <View style={s.mark}>
+                        <Text style={s.markFG}>FG</Text>
+                        <Text style={s.markSG}>SG</Text>
+                    </View>
                     <Text style={s.appName}>FitnessGuruSG</Text>
                     <Text style={s.tagline}>Expert coaching, measurable results.</Text>
                 </View>
 
-                {/* Three feature pills — social proof at a glance */}
-                <View style={s.pillRow}>
-                    {['Personalised plans', 'Progress tracking', 'Direct coaching'].map(label => (
-                        <View key={label} style={s.pill}>
-                            <Text style={s.pillText}>{label}</Text>
-                        </View>
-                    ))}
+                <View style={s.actions}>
+                    <TouchableOpacity
+                        style={s.btnPrimary}
+                        onPress={() => navigation.navigate('Login')}
+                        activeOpacity={0.88}
+                        accessibilityRole="button"
+                        accessibilityLabel="Log in to your account"
+                        accessibilityHint="Opens the log in screen"
+                    >
+                        <Text style={s.btnPrimaryText}>Log in</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={s.btnSecondary}
+                        onPress={() => navigation.navigate('Register')}
+                        activeOpacity={0.88}
+                        accessibilityRole="button"
+                        accessibilityLabel="Sign up as a new client"
+                        accessibilityHint="Opens client sign up. Coach accounts are set up by FitnessGuruSG."
+                    >
+                        <Text style={s.btnSecondaryText}>Sign up</Text>
+                    </TouchableOpacity>
+
+                    <Text style={s.hint}>
+                        Sign up is for new clients. Coach accounts are set up by FitnessGuruSG.
+                    </Text>
                 </View>
-            </View>
 
-            {/* ── Actions ────────────────────────────────────────────────────── */}
-            <View style={s.actions}>
+                <Text style={s.footer}>FitnessGuruSG · Singapore</Text>
 
-                {/* PRIMARY: Log in — people who already have an account */}
-                <TouchableOpacity
-                    style={s.btnPrimary}
-                    onPress={() => navigation.navigate('Login')}
-                    activeOpacity={0.88}
-                    accessibilityRole="button"
-                    accessibilityLabel="Log in to your account"
-                    accessibilityHint="Opens the log in screen"
-                >
-                    <Text style={s.btnPrimaryText}>Log in</Text>
-                </TouchableOpacity>
-
-                {/* SECONDARY: Sign up — new clients only */}
-                <TouchableOpacity
-                    style={s.btnSecondary}
-                    onPress={() => navigation.navigate('Register')}
-                    activeOpacity={0.88}
-                    accessibilityRole="button"
-                    accessibilityLabel="Sign up as a new client"
-                    accessibilityHint="Opens client sign up. Coach accounts are set up by FitnessGuruSG."
-                >
-                    <Text style={s.btnSecondaryText}>Sign up</Text>
-                </TouchableOpacity>
-
-                <Text style={s.hint}>
-                    Sign up is for new clients. Coach accounts are set up by FitnessGuruSG.
-                </Text>
-            </View>
-
-            {/* ── Footer ─────────────────────────────────────────────────────── */}
-            <Text style={s.footer}>FitnessGuruSG · Singapore</Text>
-
-        </SafeAreaView>
+            </SafeAreaView>
+        </View>
     );
 }
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
     root: {
         flex: 1,
-        backgroundColor: colors.background,
+        backgroundColor: colors.primaryDark,
+    },
+    safe: {
+        flex: 1,
         paddingHorizontal: spacing.xl,
         justifyContent: 'space-between',
         paddingBottom: spacing.lg,
     },
-
-    // ── Hero ──────────────────────────────────────────────────────────────────
     hero: {
         flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: spacing.xl,
-        paddingTop: spacing.section,
+        gap: spacing.md,
     },
-
-    // Brand mark — square tile on background colour (no hero panel)
     mark: {
-        width: 88,
-        height: 88,
-        borderRadius: radius.cardLg,
-        backgroundColor: colors.buttonPrimaryBg,
+        width: 92,
+        height: 92,
+        borderRadius: 24,
+        backgroundColor: '#FFFFFF',
         alignItems: 'center',
         justifyContent: 'center',
-        ...shadows.cardElevated,
+        marginBottom: spacing.sm,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.16,
+        shadowRadius: 16,
+        elevation: 6,
     },
     markFG: {
-        fontSize: 24,
+        fontSize: 28,
         fontWeight: '800',
-        color: '#FFFFFF',
-        letterSpacing: 2,
-        lineHeight: 28,
+        color: colors.primary,
+        letterSpacing: 1,
+        lineHeight: 32,
     },
     markSG: {
-        fontSize: 10,
-        fontWeight: '600',
-        color: 'rgba(255,255,255,0.55)',
-        letterSpacing: 3,
-    },
-
-    // Identity text
-    identity: {
-        alignItems: 'center',
-        gap: spacing.xs,
+        fontSize: 11,
+        fontWeight: '700',
+        color: colors.accent,
+        letterSpacing: 2,
+        marginTop: -2,
     },
     appName: {
-        fontSize: 22,
+        fontSize: 28,
         fontWeight: '800',
-        color: colors.textPrimary,
-        letterSpacing: -0.3,
+        color: '#FFFFFF',
+        letterSpacing: -0.4,
     },
     tagline: {
         ...typography.body,
-        color: colors.textSecondary,
+        color: 'rgba(255,255,255,0.78)',
         textAlign: 'center',
     },
-
-    // Feature pills
-    pillRow: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'center',
-        gap: spacing.sm,
-    },
-    pill: {
-        paddingHorizontal: spacing.md,
-        paddingVertical: spacing.xs,
-        backgroundColor: colors.accentSubtle,
-        borderRadius: radius.pill,
-        borderWidth: 1,
-        borderColor: colors.accent + '30',
-    },
-    pillText: {
-        fontSize: 12,
-        fontWeight: '500',
-        color: colors.accent,
-        letterSpacing: 0.2,
-    },
-
-    // ── Actions ───────────────────────────────────────────────────────────────
     actions: {
         gap: spacing.md,
-        paddingBottom: spacing.xl,
+        paddingBottom: spacing.lg,
     },
-
     btnPrimary: {
         height: componentSize.button,
-        backgroundColor: colors.buttonPrimaryBg,
+        backgroundColor: '#FFFFFF',
         borderRadius: radius.card,
         alignItems: 'center',
         justifyContent: 'center',
-        ...shadows.card,
     },
     btnPrimaryText: {
         ...typography.bodyLg,
-        color: colors.buttonPrimaryText,
-        fontWeight: '600',
+        color: colors.primary,
+        fontWeight: '700',
     },
-
     btnSecondary: {
         height: componentSize.button,
         borderRadius: radius.card,
         borderWidth: 1.5,
-        borderColor: colors.buttonPrimaryBg,
+        borderColor: 'rgba(255,255,255,0.85)',
+        backgroundColor: 'transparent',
         alignItems: 'center',
         justifyContent: 'center',
     },
     btnSecondaryText: {
         ...typography.bodyLg,
-        color: colors.buttonPrimaryBg,
+        color: '#FFFFFF',
         fontWeight: '600',
     },
-
     hint: {
         ...typography.caption,
-        color: colors.textSecondary,
+        color: 'rgba(255,255,255,0.72)',
         textAlign: 'center',
         lineHeight: 18,
+        marginTop: spacing.xs,
     },
-
-    // ── Footer ────────────────────────────────────────────────────────────────
     footer: {
         ...typography.micro,
-        color: colors.placeholder,
+        color: 'rgba(255,255,255,0.45)',
         textAlign: 'center',
-        letterSpacing: 0.8,
+        letterSpacing: 0.4,
     },
 });
