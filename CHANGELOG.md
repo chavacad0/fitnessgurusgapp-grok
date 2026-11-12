@@ -15,7 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ### In review
 
-- Docs only. `PROJECT_STATUS.md` adds a second future plan, Motivation & Rewards (gamification), next to the Client Community Feed. It is not started. Nothing in the app changes. The audit log is unchanged: pull requests #2 and #3 did not fix any open finding.
+- [Pull request #5](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/5) — Docs only. `PROJECT_STATUS.md` adds a second future plan, Motivation & Rewards (gamification), next to the Client Community Feed. It is not started. Nothing in the app changes. The audit log is unchanged: pull requests #2 and #3 did not fix any open finding.
 
 ## [2026-11-12]
 
