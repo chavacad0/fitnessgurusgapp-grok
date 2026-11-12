@@ -15,7 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ### Fixed
 
-- Security (AUD-005): `npm test` no longer deletes every client from the database the app is configured with. It connects only through `TEST_MONGODB_URI`, and it refuses to delete unless `NODE_ENV` is `test` and the database name ends with `_test`. It deletes only the rows that test created.
+- Security (AUD-005), [pull request #13](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/13): `npm test` no longer deletes every client from the database the app is configured with. It connects only through `TEST_MONGODB_URI`, and it refuses to delete unless `NODE_ENV` is `test` and the database name ends with `_test`. It deletes only the rows that test created.
 
 ### In review
 
