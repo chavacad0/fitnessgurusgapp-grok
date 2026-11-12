@@ -11,6 +11,9 @@
  *   Amber (#B45309) = needs attention / follow-up / expiring soon
  *   Red   (#DC2626) = CRITICAL ONLY — expired plan, failed payment, serious alert
  *   Blue  (#2563EB) = informational / booked status / tips
+ *
+ * Design-kit tokens (`palette`, `tints`, `badgeColors`) repeat these same
+ * colours. They do not introduce a second, brighter set.
  */
 
 // ─── Colors ──────────────────────────────────────────────────────────────────
@@ -124,6 +127,61 @@ export const colors = {
     avatarText: '#0F766E',
 };
 
+/**
+ * Design-kit swatches. Same colours as the live app, including the coach
+ * dashboard: navy cards, teal Assign Workout card, sage green, amber, greys.
+ */
+export const palette = {
+    /** Navy cards, greeting, primary buttons. Same as `colors.primary`. */
+    primary:    '#183A4A',
+    /** Links and active states. Same as `colors.accent`. */
+    teal:       '#0F766E',
+    /** Assign Workout card on the coach dashboard. */
+    tealAction: '#0D7B76',
+    /** Positive green. Same as `colors.badgeSuccessText`. */
+    mint:       '#16A34A',
+    success:    '#16A34A',
+    /** Attention, not an emergency. Same as `colors.amberText`. */
+    warning:    '#B45309',
+    /** Critical only. Same as `colors.errorText`. */
+    danger:     '#DC2626',
+    gray900:    '#111827',
+    gray600:    '#6B7280',
+    gray400:    '#9CA3AF',
+    gray300:    '#D1D5DB',
+    gray100:    '#F3F4F6',
+    /** App background. Same as `colors.background`. */
+    background: '#F7F8FA',
+    white:      '#FFFFFF',
+} as const;
+
+/**
+ * Pale fills already used behind icons and badges.
+ */
+export const tints = {
+    /** Same as `colors.accentSubtle`. */
+    tealSoft: '#E6F7F1',
+    /** Same as `colors.surfaceMuted`. */
+    navySoft: '#F3F4F6',
+} as const;
+
+/**
+ * Status pills. Each pair is an existing badge colour from `colors`
+ * (sage, amber, grey, red, teal, blue). Follow-up and expiring soon
+ * share the calm amber pair — not a red alert.
+ */
+export const badgeColors = {
+    activePlan:    { background: '#DCFCE7', text: '#16A34A' },
+    followUp:      { background: '#FEF3C7', text: '#92400E' },
+    noPlan:        { background: '#F3F4F6', text: '#6B7280' },
+    missedCheckIn: { background: '#FEF2F2', text: '#DC2626' },
+    completed:     { background: '#DCFCE7', text: '#16A34A' },
+    cancelled:     { background: '#F3F4F6', text: '#6B7280' },
+    open:          { background: '#E6F7F1', text: '#0F766E' },
+    booked:        { background: '#EFF6FF', text: '#2563EB' },
+    expiringSoon:  { background: '#FEF3C7', text: '#92400E' },
+} as const;
+
 
 // ─── Spacing scale ────────────────────────────────────────────────────────────
 //
@@ -161,6 +219,11 @@ export const radius = {
 };
 
 // ─── Typography ───────────────────────────────────────────────────────────────
+//
+// Sizes and weights below stay free of a font family on purpose.
+// Poppins (headings) and Inter (body) are applied by fontStyle() in
+// src/theme/fonts.tsx, and only after the font files have loaded.
+// Screens that do not opt in keep the phone's built-in font.
 
 export const typography = {
     /** Hero greetings, display headings */
@@ -226,5 +289,13 @@ export const shadows = {
         shadowOpacity: 0.12,
         shadowRadius:  16,
         elevation:     8,
+    },
+    /** White cards in the design kit — a soft navy-tinted lift */
+    soft: {
+        shadowColor:   palette.primary,
+        shadowOffset:  { width: 0, height: 8 },
+        shadowOpacity: 0.06,
+        shadowRadius:  16,
+        elevation:     3,
     },
 };

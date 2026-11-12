@@ -10,11 +10,17 @@
  *   GET /api/clients/status   → hasCheckedInToday per client (action queue)
  *
  * ─── Layout ───────────────────────────────────────────────────────────────────
- *   1. Greeting + date
- *   2. Today Overview  — stat tiles (Total / Needs Attention / Today's Sessions)
- *   3. Action Required — clients who haven't checked in today
- *   4. Today's Sessions — confirmed bookings for today
- *   5. Low-Session Alerts — clients with ≤ 2 sessions left
+ *   1. Greeting + date (navy, current type — kept as on screen)
+ *   2. Business Overview — revenue, renewals, active plans, expiring soon
+ *   3. Stat tiles — Total Clients, Need Follow-Up, Sessions Today
+ *   4. Quick action — Assign Workout
+ *   5. Renewals to follow up, plan mix, low sessions
+ *   6. Missed check-ins today, and clients who already checked in
+ *
+ * Colours and fonts on this screen stay as they are. Later edits here
+ * should only tidy spacing, card shape, alignment, headers, and empty states.
+ * Need Follow-Up is a normal stat tile (amber tint only when the count is
+ * above zero). It is not a red alert card.
  */
 
 import React, { useState, useCallback } from 'react';
@@ -30,18 +36,19 @@ import {
     Alert,
     ActivityIndicator,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, radius, typography, shadows } from '../theme/theme';
+import { colors, spacing, radius, typography, shadows, palette } from '../theme/theme';
+import Card from '../components/Card';
 import { getDashboard, getClientStatus, getRevenueSummary, RevenueSummary } from '../services/apiClient';
 import { DashboardSummary, ClientStatusItem } from '../types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const NAVY  = '#183A4A';  // Primary Navy — per spec
-const RED   = '#C0392B';  // Critical only — expired / serious alert
-const AMBER = '#B45309';  // Attention / follow-up — NOT emergency
+// Colours already on this screen. Navy and the Assign Workout teal come from
+// the design kit, which uses these same values. RED stays the existing crimson
+// used for a low-session count — follow-up tiles do not use it.
+const RED = '#C0392B';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -74,32 +81,39 @@ function StatTile({
 }: {
     label: string; value: number | string; variant?: 'default' | 'navy' | 'urgent';
 }) {
-    // Follow-up/attention tile uses amber (not red) — coach needs to act, but it's not a crisis
-    const bg       = variant === 'navy' ? NAVY
-                   : variant === 'urgent' ? '#FFFBEB'
+    // Follow-up uses the same tile shape as the other stats.
+    // Amber only when the count is above zero. No alert icon, no red card.
+    const bg       = variant === 'navy' ? palette.primary
+                   : variant === 'urgent' ? colors.amberBg
                    : colors.surface;
     const valColor = variant === 'default' ? colors.textPrimary
-                   : variant === 'urgent'  ? AMBER
-                   : '#FFF';
+                   : variant === 'urgent'  ? colors.amberText
+                   : colors.statText;
     const lblColor = variant === 'default' ? colors.textSecondary
-                   : variant === 'urgent'  ? '#92400E'
+                   : variant === 'urgent'  ? colors.badgeWarningText
                    : 'rgba(255,255,255,0.75)';
-    const border   = variant === 'default' ? { borderWidth: 1, borderColor: colors.border }
-                   : variant === 'urgent'  ? { borderWidth: 1, borderColor: '#FDE68A' }
-                   : {};
+    const border   = variant === 'navy'
+        ? { borderWidth: 0 }
+        : variant === 'urgent'
+            ? { borderWidth: 1, borderColor: colors.amberBorder }
+            : { borderWidth: 1, borderColor: colors.border };
     return (
-        <View style={[tile.wrap, { backgroundColor: bg }, border]}>
+        <Card padding="none" style={[tile.wrap, { backgroundColor: bg }, border]}>
             <Text style={[tile.value, { color: valColor }]}>{value}</Text>
-            <Text style={[tile.label, { color: lblColor }]}>{label}</Text>
-        </View>
+            <Text style={[tile.label, { color: lblColor }]} numberOfLines={2}>{label}</Text>
+        </Card>
     );
 }
 
 const tile = StyleSheet.create({
     wrap: {
-        flex: 1, borderRadius: radius.card,
-        paddingVertical: spacing.md, paddingHorizontal: spacing.xs,
-        alignItems: 'center', ...shadows.card,
+        flex: 1,
+        minHeight: 84,
+        borderRadius: radius.card,
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.xs,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     value: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5, lineHeight: 34 },
     label: { fontSize: 11, fontWeight: '600', textAlign: 'center', marginTop: 3, letterSpacing: 0.2 },
@@ -140,13 +154,13 @@ const ac = StyleSheet.create({
         borderRadius: radius.card, borderWidth: 1, borderColor: colors.border,
         marginBottom: spacing.sm, overflow: 'hidden', ...shadows.card,
     },
-    strip: { width: 4, backgroundColor: AMBER },    // amber = follow-up attention, not emergency
+    strip: { width: 4, backgroundColor: colors.amberText },    // amber = follow-up attention, not emergency
     body: { flex: 1, padding: spacing.base },
     topRow: { marginBottom: spacing.sm },
     name: { ...typography.h3, color: colors.textPrimary, marginBottom: 3 },
-    issueTag: { ...typography.caption, color: AMBER, fontWeight: '600' },
+    issueTag: { ...typography.caption, color: colors.amberText, fontWeight: '600' },
     actionBtn: {
-        alignSelf: 'flex-start', backgroundColor: NAVY,
+        alignSelf: 'flex-start', backgroundColor: palette.primary,
         borderRadius: radius.md, paddingVertical: 7, paddingHorizontal: spacing.md,
     },
     actionLabel: { fontSize: 13, fontWeight: '700', color: '#FFF', letterSpacing: 0.2 },
@@ -158,7 +172,7 @@ function BookingRow({
     clientName: string; startTime: string; endTime: string;
     status: 'booked' | 'completed' | 'cancelled';
 }) {
-    const statusColor = status === 'completed' ? '#059669' : status === 'cancelled' ? RED : NAVY;
+    const statusColor = status === 'completed' ? '#059669' : status === 'cancelled' ? RED : palette.primary;
     const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
     return (
         <View style={br.row}>
@@ -199,8 +213,8 @@ function SectionLabel({ title, count, urgent }: { title: string; count: number; 
     return (
         <View style={sl.row}>
             <Text style={sl.title}>{title.toUpperCase()}</Text>
-            <View style={[sl.pill, urgent && { backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A' }]}>
-                <Text style={[sl.count, urgent && { color: AMBER }]}>{count}</Text>
+            <View style={[sl.pill, urgent && { backgroundColor: colors.badgeWarningBg, borderWidth: 1, borderColor: colors.amberBorder }]}>
+                <Text style={[sl.count, urgent && { color: colors.amberText }]}>{count}</Text>
             </View>
         </View>
     );
@@ -228,8 +242,6 @@ export default function CoachDashboardScreen({ navigation }: any) {
     const [dashboard,    setDashboard]    = useState<DashboardSummary | null>(null);
     const [clientStatus, setClientStatus] = useState<ClientStatusItem[]>([]);
     const [revenue,      setRevenue]      = useState<RevenueSummary | null>(null);
-
-    const insets = useSafeAreaInsets();
 
     // ── Data fetch ────────────────────────────────────────────────────────────
 
@@ -354,7 +366,7 @@ export default function CoachDashboardScreen({ navigation }: any) {
     if (loading) {
         return (
             <View style={[s.screen, s.centered]}>
-                <ActivityIndicator size="large" color={NAVY} />
+                <ActivityIndicator size="large" color={palette.primary} />
                 <Text style={s.loadingText}>Loading dashboard...</Text>
             </View>
         );
@@ -378,10 +390,10 @@ export default function CoachDashboardScreen({ navigation }: any) {
     return (
         <ScrollView
             style={s.screen}
-            contentContainerStyle={[s.content, { paddingTop: insets.top + spacing.xl }]}
+            contentContainerStyle={[s.content, { paddingTop: spacing.lg }]}
             showsVerticalScrollIndicator={false}
             refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={NAVY} />
+                <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={palette.primary} />
             }
         >
             <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
@@ -547,10 +559,10 @@ export default function CoachDashboardScreen({ navigation }: any) {
                 <Text style={rv.subLabel}>RENEWALS TO FOLLOW UP</Text>
 
                 {(revenue?.expiringClients?.length ?? 0) === 0 ? (
-                    <View style={rv.emptyRenewCard}>
-                        <Text style={rv.emptyRenewIcon}>🗓</Text>
+                    <Card padding="none" style={rv.emptyRenewCard}>
+                        <Ionicons name="calendar-outline" size={22} color={colors.textSecondary} />
                         <Text style={rv.emptyRenewText}>No renewals due in the next 30 days.</Text>
-                    </View>
+                    </Card>
                 ) : (
                     <View style={s.listCard}>
                         {revenue!.expiringClients.map((c, i) => {
@@ -644,7 +656,8 @@ export default function CoachDashboardScreen({ navigation }: any) {
                 <SectionLabel title="Missed Check-Ins Today" count={missedCount} urgent={missedCount > 0} />
                 {missedCount === 0 ? (
                     <View style={s.emptyCard}>
-                        <Text style={s.emptyText}>✓  Everyone has checked in — no action needed</Text>
+                        <Ionicons name="checkmark-circle-outline" size={18} color={colors.badgeSuccessText} />
+                        <Text style={s.emptyText}>Everyone has checked in — no action needed</Text>
                     </View>
                 ) : (
                     missedClients.map(client => (
@@ -701,11 +714,11 @@ const s = StyleSheet.create({
     loadingText: { ...typography.body, color: colors.textSecondary, marginTop: spacing.md },
 
     errorText: { ...typography.body, color: RED, textAlign: 'center', marginBottom: spacing.md },
-    retryBtn:  { backgroundColor: NAVY, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.xl },
+    retryBtn:  { backgroundColor: palette.primary, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.xl },
     retryLabel: { ...typography.label, color: '#FFF', fontWeight: '700' },
 
     greetingBlock: { marginBottom: spacing.xl },
-    greeting: { fontSize: 26, fontWeight: '800', color: NAVY, letterSpacing: -0.4, marginBottom: spacing.xs },
+    greeting: { fontSize: 26, fontWeight: '800', color: palette.primary, letterSpacing: -0.4, marginBottom: spacing.xs },
     date: { ...typography.body, color: colors.textSecondary },
 
     pendingBadge: {
@@ -725,11 +738,22 @@ const s = StyleSheet.create({
     },
 
     emptyCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.sm,
         backgroundColor: colors.surface, borderRadius: radius.card,
         borderWidth: 1, borderColor: colors.successBorder,
-        paddingVertical: spacing.lg, alignItems: 'center', ...shadows.card,
+        paddingVertical: spacing.lg, paddingHorizontal: spacing.base,
+        ...shadows.card,
     },
-    emptyText: { ...typography.body, color: colors.badgeSuccessText, fontWeight: '500' },
+    emptyText: {
+        ...typography.body,
+        color: colors.badgeSuccessText,
+        fontWeight: '500',
+        textAlign: 'center',
+        flexShrink: 1,
+    },
 
     divider: { height: 1, backgroundColor: colors.border, marginHorizontal: spacing.base },
 
@@ -772,13 +796,13 @@ const s = StyleSheet.create({
 
 // ─── Quick Actions styles ─────────────────────────────────────────────────────
 
-const TEAL = '#0D7B76'; // Teal action color — distinct from NAVY, signals "do something"
+// palette.tealAction is the Assign Workout teal already on this screen.
 
 const qa = StyleSheet.create({
     header: {
         flexDirection:  'row',
         alignItems:     'center',
-        marginBottom:   spacing.sm,
+        marginBottom:   spacing.md,
     },
     sectionTitle: {
         fontSize:      11,
@@ -792,7 +816,7 @@ const qa = StyleSheet.create({
         flexDirection:   'row',
         alignItems:      'center',
         gap:             spacing.md,
-        backgroundColor: TEAL,
+        backgroundColor: palette.tealAction,
         borderRadius:    radius.card,
         paddingVertical:   spacing.base,
         paddingHorizontal: spacing.base,
@@ -826,11 +850,17 @@ const qa = StyleSheet.create({
 const rv = StyleSheet.create({
     tilesRow: { flexDirection: 'row', gap: spacing.sm },
     tile: {
-        flex: 1, borderRadius: radius.card, paddingVertical: spacing.md,
-        paddingHorizontal: spacing.sm, alignItems: 'center', ...shadows.card,
+        flex: 1,
+        minHeight: 92,
+        borderRadius: radius.card,
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.sm,
+        alignItems: 'center',
+        justifyContent: 'center',
+        ...shadows.card,
     },
-    tileGreen: { backgroundColor: '#F0FDF4', borderWidth: 1, borderColor: '#BBF7D0' },
-    tileNavy:  { backgroundColor: NAVY },
+    tileGreen: { backgroundColor: colors.successBg, borderWidth: 1, borderColor: colors.successBorder },
+    tileNavy:  { backgroundColor: palette.primary, borderWidth: 0 },
     tileMuted: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
     tileAmber: { backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FCD34D' },
 
@@ -849,19 +879,15 @@ const rv = StyleSheet.create({
     },
 
     subLabel: {
-        fontSize: 10, fontWeight: '800', letterSpacing: 1.1,
-        color: colors.textSecondary, marginBottom: spacing.sm,
+        fontSize: 11, fontWeight: '800', letterSpacing: 1.2,
+        color: colors.textSecondary, marginBottom: spacing.md,
     },
 
     // Empty state — "No renewals due"
     emptyRenewCard: {
         flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-        backgroundColor: colors.surface, borderRadius: radius.card,
-        borderWidth: 1, borderColor: colors.border,
         paddingVertical: spacing.lg, paddingHorizontal: spacing.base,
-        ...shadows.card,
     },
-    emptyRenewIcon: { fontSize: 20 },
     emptyRenewText: {
         ...typography.body, color: colors.textSecondary,
         fontWeight: '500', flex: 1,

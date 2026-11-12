@@ -1,88 +1,86 @@
 /**
- * StatusBadge — Reusable status pill for FitnessGuruSG.
+ * StatusBadge — coloured pill for plan, booking, and check-in states.
  *
- * Renders a colored pill badge for client/plan/booking statuses.
+ * Named variants match the design board. Pass `label` to override the words.
  *
- * Presets:
- *   'active'   → green (checked-in, active plan, on-track)
- *   'warning'  → amber (follow-up, low sessions, expiring soon)
- *   'danger'   → red   (expired, missed, failed)
- *   'info'     → blue  (booked, informational)
- *   'neutral'  → gray  (no plan, paused, default)
- *   'accent'   → teal  (special highlights)
+ *   <StatusBadge variant="activePlan" />
+ *   <StatusBadge variant="booked" label="Upcoming" />
  *
- * Usage:
+ * The older `status` + `label` form still works:
  *   <StatusBadge status="active" label="Active Plan" />
- *   <StatusBadge status="warning" label="Follow-up" />
- *   <StatusBadge status="danger" label="Expired" />
- *   <StatusBadge status="neutral" label="Paused" />
  */
 
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { colors, radius, spacing, typography } from '../theme/theme';
+import { badgeColors, radius, spacing } from '../theme/theme';
+import { fontStyle, useKitFonts } from '../theme/fonts';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+export type BadgeVariant =
+    | 'activePlan'
+    | 'followUp'
+    | 'noPlan'
+    | 'missedCheckIn'
+    | 'completed'
+    | 'cancelled'
+    | 'open'
+    | 'booked'
+    | 'expiringSoon';
 
+/** Older presets. Each one maps onto a design-board variant. */
 export type BadgeStatus = 'active' | 'warning' | 'danger' | 'info' | 'neutral' | 'accent';
 
-interface StatusBadgeProps {
-    /** Visual status preset */
-    status: BadgeStatus;
-    /** Text displayed inside the badge */
-    label: string;
-    /** Optional compact mode — reduces padding */
-    compact?: boolean;
-}
-
-// ─── Color map ────────────────────────────────────────────────────────────────
-
-const STATUS_COLORS: Record<BadgeStatus, { bg: string; text: string; border: string }> = {
-    active: {
-        bg:     colors.badgeSuccessBg,
-        text:   colors.badgeSuccessText,
-        border: colors.successBorder,
-    },
-    warning: {
-        bg:     colors.badgeWarningBg,
-        text:   colors.badgeWarningText,
-        border: colors.amberBorder,
-    },
-    danger: {
-        bg:     colors.errorBg,
-        text:   colors.errorText,
-        border: colors.errorBorder,
-    },
-    info: {
-        bg:     colors.infoBg,
-        text:   colors.infoText,
-        border: colors.infoBorder,
-    },
-    neutral: {
-        bg:     colors.badgeNeutralBg,
-        text:   colors.badgeNeutralText,
-        border: colors.border,
-    },
-    accent: {
-        bg:     colors.accentSubtle,
-        text:   colors.accent,
-        border: colors.accent + '33', // 20% opacity
-    },
+const VARIANT_LABELS: Record<BadgeVariant, string> = {
+    activePlan:    'Active Plan',
+    followUp:      'Follow-Up',
+    noPlan:        'No Plan',
+    missedCheckIn: 'Missed Check-In',
+    completed:     'Completed',
+    cancelled:     'Cancelled',
+    open:          'Open',
+    booked:        'Booked',
+    expiringSoon:  'Expiring Soon',
 };
 
-// ─── Component ────────────────────────────────────────────────────────────────
+const LEGACY_TO_VARIANT: Record<BadgeStatus, BadgeVariant> = {
+    active:  'completed',
+    warning: 'followUp',
+    danger:  'missedCheckIn',
+    info:    'booked',
+    neutral: 'noPlan',
+    accent:  'open',
+};
 
-export default function StatusBadge({ status, label, compact = false }: StatusBadgeProps) {
-    const palette = STATUS_COLORS[status];
+type StatusBadgeProps = {
+    compact?: boolean;
+} & (
+    | { variant: BadgeVariant; label?: string; status?: never }
+    | { status: BadgeStatus; label: string; variant?: never }
+);
+
+function resolve(props: StatusBadgeProps): { variant: BadgeVariant; label: string } {
+    if (props.variant) {
+        return {
+            variant: props.variant,
+            label: props.label ?? VARIANT_LABELS[props.variant],
+        };
+    }
+    return {
+        variant: LEGACY_TO_VARIANT[props.status],
+        label: props.label,
+    };
+}
+
+export default function StatusBadge(props: StatusBadgeProps) {
+    const fonts = useKitFonts();
+    const { variant, label } = resolve(props);
+    const colors = badgeColors[variant];
+    const compact = props.compact ?? false;
 
     return (
         <View
             style={[
                 s.pill,
-                {
-                    backgroundColor: palette.bg,
-                    borderColor: palette.border,
-                },
+                { backgroundColor: colors.background },
                 compact && s.pillCompact,
             ]}
             accessibilityRole="text"
@@ -91,7 +89,8 @@ export default function StatusBadge({ status, label, compact = false }: StatusBa
             <Text
                 style={[
                     s.label,
-                    { color: palette.text },
+                    { color: colors.text },
+                    fontStyle(fonts.bodySemibold, '600'),
                     compact && s.labelCompact,
                 ]}
                 numberOfLines={1}
@@ -102,14 +101,11 @@ export default function StatusBadge({ status, label, compact = false }: StatusBa
     );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
 const s = StyleSheet.create({
     pill: {
         borderRadius: radius.pill,
-        borderWidth: 1,
-        paddingHorizontal: spacing.sm,
-        paddingVertical: 3,
+        paddingHorizontal: spacing.sm + 2,
+        paddingVertical: 4,
         alignSelf: 'flex-start',
     },
     pillCompact: {
@@ -118,8 +114,8 @@ const s = StyleSheet.create({
     },
     label: {
         fontSize: 11,
-        fontWeight: '700',
-        letterSpacing: 0.3,
+        letterSpacing: 0.2,
+        includeFontPadding: false,
     },
     labelCompact: {
         fontSize: 10,

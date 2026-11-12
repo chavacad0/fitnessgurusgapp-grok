@@ -4,6 +4,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/context/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
+import { AppFontProvider } from './src/theme/fonts';
 
 // 🔥 DEBUG — confirms JS bundle is executing (remove after blank-screen is fixed)
 console.log('🚀 App.tsx is executing — bundle loaded successfully');
@@ -12,7 +13,8 @@ console.log('🚀 App.tsx is executing — bundle loaded successfully');
  * App root — wraps everything in:
  *  1. GestureHandlerRootView  (required for react-native-gesture-handler)
  *  2. SafeAreaProvider        (required for SafeAreaView in all screens)
- *  3. AuthProvider            (JWT token + login/logout context for all screens)
+ *  3. AppFontProvider         (Poppins + Inter; the app still shows if they fail)
+ *  4. AuthProvider            (JWT token + login/logout context for all screens)
  *
  * WHY SafeAreaProvider here?
  *   Every screen imports SafeAreaView from react-native-safe-area-context.
@@ -26,9 +28,11 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
-        <AuthProvider>
-          <RootNavigator />
-        </AuthProvider>
+        <AppFontProvider>
+          <AuthProvider>
+            <RootNavigator />
+          </AuthProvider>
+        </AppFontProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

@@ -13,12 +13,15 @@ import {
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, radius, typography, shadows } from '../../theme/theme';
+import { fontStyle, useKitFonts } from '../../theme/fonts';
 import {
     getClientProfile,
     updateClientProfile,
     ClientBodyProfile,
 } from '../../services/apiClient';
 import BodyMeasurementGuide from '../../components/BodyMeasurementGuide';
+import { Avatar } from '../../components/UserAvatar';
+import StatusBadge from '../../components/StatusBadge';
 
 /**
  * ClientProfileScreen
@@ -30,6 +33,10 @@ import BodyMeasurementGuide from '../../components/BodyMeasurementGuide';
  *     Edit → Cancel / Save via PATCH /api/clients/me/profile.
  *  3. App info row
  *  4. Sign out
+ *
+ * Design-kit demo, client screen only: the initials avatar, the name, and
+ * the email use the shared kit. Editing, saving, and sign-out are unchanged.
+ * Coach screens are not part of this.
  */
 
 // ─── Fitness goal options ────────────────────────────────────────────────────
@@ -52,6 +59,7 @@ const EXPERIENCE_OPTIONS: { label: string; value: string }[] = [
 
 export default function ClientProfileScreen() {
     const { user, logout, updateUser } = useAuth();
+    const fonts = useKitFonts();
 
     // ── Profile state ─────────────────────────────────────────────────────────
     const [profile,  setProfile]  = useState<ClientBodyProfile | null>(null);
@@ -210,16 +218,14 @@ export default function ClientProfileScreen() {
             >
                 {/* ── Avatar + name ── */}
                 <View style={s.hero}>
-                    <View style={s.avatar}>
-                        <Text style={s.avatarInitials}>
-                            {getInitials(user?.name ?? '?')}
-                        </Text>
-                    </View>
-                    <Text style={s.name}>{user?.name ?? '—'}</Text>
-                    <Text style={s.email}>{user?.email ?? '—'}</Text>
-                    <View style={s.rolePill}>
-                        <Text style={s.roleText}>Client account</Text>
-                    </View>
+                    <Avatar
+                        name={user?.name ?? ''}
+                        size={80}
+                        style={s.avatarSlot}
+                    />
+                    <Text style={[s.name, fontStyle(fonts.heading, '700')]}>{user?.name ?? '—'}</Text>
+                    <Text style={[s.email, fontStyle(fonts.body, '400')]}>{user?.email ?? '—'}</Text>
+                    <StatusBadge status="neutral" label="Client account" />
                 </View>
 
                 {/* ── Account section ── */}
@@ -497,12 +503,6 @@ function InfoRow({ label, value, last }: { label: string; value: string; last?: 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getInitials(name: string): string {
-    const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-    return name.slice(0, 2).toUpperCase();
-}
-
 function formatExperience(val: string | null | undefined): string {
     if (!val) return 'Not set';
     // Capitalise the first letter of canonical values for display
@@ -527,20 +527,8 @@ const s = StyleSheet.create({
         alignItems: 'center',
         marginBottom: spacing.xxl,
     },
-    avatar: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        backgroundColor: colors.statBg,
-        justifyContent: 'center',
-        alignItems: 'center',
+    avatarSlot: {
         marginBottom: spacing.base,
-    },
-    avatarInitials: {
-        fontSize: 28,
-        fontWeight: '700',
-        color: '#FFFFFF',
-        letterSpacing: 1,
     },
     name: {
         ...typography.h2,
@@ -552,17 +540,6 @@ const s = StyleSheet.create({
         color: colors.textSecondary,
         marginBottom: spacing.sm,
     },
-    rolePill: {
-        backgroundColor: colors.accentSubtle,
-        borderRadius: radius.pill,
-        paddingHorizontal: spacing.base,
-        paddingVertical: spacing.xs,
-    },
-    roleText: {
-        ...typography.label,
-        color: colors.accent,
-    },
-
     // Section header row (label + Edit link side by side)
     sectionHeader: {
         flexDirection: 'row',
