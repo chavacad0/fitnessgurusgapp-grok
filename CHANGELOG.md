@@ -16,6 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 ### In review
 
 - [Pull request #5](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/5) — Docs only. `PROJECT_STATUS.md` adds a second future plan, Motivation & Rewards (gamification), next to the Client Community Feed. It is not started. Nothing in the app changes. The audit log is unchanged: pull requests #2 and #3 did not fix any open finding.
+- [Pull request #6](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/6) — Client screens look a bit calmer, using the shared cards, buttons, and status pills. Home reminders are navy and white instead of a blue banner. Progress and Book show clearer empty messages. My Plan shows an Active Plan pill. Profile empty values are quieter. Colours, fonts, coach screens, login, and payments are unchanged.
 
 ## [2026-11-12]
 
