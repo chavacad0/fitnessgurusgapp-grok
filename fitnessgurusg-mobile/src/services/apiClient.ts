@@ -1180,6 +1180,10 @@ export async function sendWhatsAppMessage(
         headers,
         body:    JSON.stringify({ to, message }),
     });
+    // The server route is switched off until reminders are designed.
+    if (response.status === 503 || response.status === 404) {
+        throw new Error('WhatsApp is not available yet.');
+    }
     return handleResponse(response);
 }
 

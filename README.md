@@ -141,7 +141,7 @@ All code examples are in `docs/setup/SUPABASE_SETUP.md`:
 TEST_MONGODB_URI=mongodb://127.0.0.1:27017 npm test
 ```
 
-`npm run test:auth` is a separate suite. It also refuses to drop a database whose name does not end with `_test`.
+`npm run test:auth` is a separate suite. It also uses `TEST_MONGODB_URI` only, and it refuses to drop a database whose name does not end with `_test`.
 
 ## Questions?
 

@@ -16,6 +16,7 @@ import { getActivePlansForCoach } from '../repositories/mongoClientPlanRepo';
 import { SESSION_PLANS, getPlanById } from '../config/plans';
 import { getDb } from '../db/mongo';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/authMiddleware';
+import { requireRole } from '../middleware/requireRole';
 import { clientAuthMiddleware } from '../middleware/clientAuthMiddleware';
 import { updateClientPlanStatus, findClientById, updateClientBodyProfile } from '../repositories/mongoClientAuthRepo';
 import { canEditCheckIn } from '../utils/checkInEditWindow';
@@ -84,6 +85,11 @@ router.use('/clients', authMiddleware);
 router.use('/coach', authMiddleware);
 router.use('/bookings', authMiddleware);
 router.use('/payments', authMiddleware);
+// Coach doors. Client /me routes live under /clients and are not included here.
+// Payment routes that a client calls (/payments/client-*) stay open to clients
+// and get requireRole only on the coach handlers below.
+router.use('/coach', requireRole('coach'));
+router.use('/bookings', requireRole('coach'));
 // /plans is intentionally PUBLIC — no auth required (plan catalogue)
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -94,7 +100,7 @@ router.use('/payments', authMiddleware);
  * GET /api/clients
  * Returns all clients scoped to the authenticated coach.
  */
-router.get('/clients', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/clients', requireRole('coach'), async (req: AuthenticatedRequest, res: Response) => {
     const coachId = req.coach!.sub;
     log('GET /clients', `Fetching clients for coach ${coachId}`);
     try {
@@ -115,7 +121,7 @@ router.get('/clients', async (req: AuthenticatedRequest, res: Response) => {
  * (plan_name, sessions_remaining, expiry_date, plan_status) per client.
  * Session fields are only present when the client has an active plan.
  */
-router.get('/clients/status', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/clients/status', requireRole('coach'), async (req: AuthenticatedRequest, res: Response) => {
     const coachId = req.coach!.sub;
     const date = (req.query['date'] as string) || new Date().toISOString().split('T')[0];
 
@@ -890,7 +896,7 @@ async function requireClientOwnership(
  *
  * Any unset field is returned as null.
  */
-router.get('/clients/:clientId/profile', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/clients/:clientId/profile', requireRole('coach'), async (req: AuthenticatedRequest, res: Response) => {
     const clientId = req.params['clientId'] as string;
 
     const owned = await requireClientOwnership(req, res, clientId, 'GET /clients/:clientId/profile');
@@ -932,7 +938,7 @@ router.get('/clients/:clientId/profile', async (req: AuthenticatedRequest, res: 
  * Assign a session plan to a client.
  * Body: { plan_name, sessions_total, start_date, expiry_date }
  */
-router.post('/clients/:clientId/plan', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/clients/:clientId/plan', requireRole('coach'), async (req: AuthenticatedRequest, res: Response) => {
     const clientId = req.params['clientId'] as string;
     const coachId = req.coach!.sub;
 
@@ -1049,7 +1055,7 @@ router.get('/clients/:clientId/session-status', async (req: AuthenticatedRequest
  * Deduct 1 session from a client's active plan.
  * Used when a session is completed outside of the booking system.
  */
-router.post('/clients/:clientId/complete-session', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/clients/:clientId/complete-session', requireRole('coach'), async (req: AuthenticatedRequest, res: Response) => {
     const clientId = req.params['clientId'] as string;
     const coachId = req.coach!.sub;
     try {
@@ -1251,7 +1257,7 @@ router.get('/clients/:clientId/checkins', async (req: AuthenticatedRequest, res:
 /**
  * GET /api/clients/:clientId/redflags?limit=20
  */
-router.get('/clients/:clientId/redflags', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/clients/:clientId/redflags', requireRole('coach'), async (req: AuthenticatedRequest, res: Response) => {
     const clientId = req.params['clientId'] as string;
     const limit = parseInt(req.query['limit'] as string, 10) || 20;
     log('GET /redflags', `Fetching red flags for ${clientId} (limit: ${limit})`);
@@ -1271,7 +1277,7 @@ router.get('/clients/:clientId/redflags', async (req: AuthenticatedRequest, res:
 /**
  * POST /api/clients/:clientId/redflags/detect
  */
-router.post('/clients/:clientId/redflags/detect', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/clients/:clientId/redflags/detect', requireRole('coach'), async (req: AuthenticatedRequest, res: Response) => {
     const clientId = req.params['clientId'] as string;
     log('POST /redflags/detect', `Manual red flag detection for ${clientId}`);
 
@@ -1564,11 +1570,20 @@ router.post('/coach/availability', async (req: AuthenticatedRequest, res: Respon
  */
 router.post('/bookings', async (req: AuthenticatedRequest, res: Response) => {
     const coachId = req.coach!.sub;
-    const { client_id, availability_slot_id, notes } = req.body;
+    const { client_id, availability_slot_id, notes } = req.body ?? {};
 
-    if (!client_id || !availability_slot_id) {
+    // A non-string id (for example {"$ne":null}) must not reach a database query.
+    if (typeof client_id !== 'string' || client_id.trim() === '') {
+        return res.status(400).json({ success: false, error: 'client_id must be a string.' });
+    }
+    if (typeof availability_slot_id !== 'string' || availability_slot_id.trim() === '') {
         return res.status(400).json({ success: false, error: 'Required fields: client_id, availability_slot_id' });
     }
+
+    // Ownership first. A client who belongs to another coach gets the same
+    // denial whether or not they have a plan, so the reply does not leak that.
+    const owned = await requireClientOwnership(req, res, client_id, 'POST /bookings');
+    if (!owned) return;
 
     // ── Active plan gate ─────────────────────────────────────────────────────────
     const activePlan = await getActivePlanForClient(client_id);
@@ -1618,16 +1633,23 @@ router.patch('/bookings/:bookingId/complete', async (req: AuthenticatedRequest, 
  */
 router.post('/bookings/quick', async (req: AuthenticatedRequest, res: Response) => {
     const coachId = req.coach!.sub;
-    const { client_id, date, start_time, end_time, notes } = req.body;
+    const { client_id, date, start_time, end_time, notes } = req.body ?? {};
 
-    if (!client_id || !date || !start_time || !end_time) {
+    if (typeof client_id !== 'string' || client_id.trim() === '') {
+        res.status(400).json({ success: false, error: 'client_id must be a string.' });
+        return;
+    }
+    if (!date || !start_time || !end_time) {
         res.status(400).json({ success: false, error: 'client_id, date, start_time, and end_time are required.' });
         return;
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         res.status(400).json({ success: false, error: 'date must be YYYY-MM-DD.' });
         return;
     }
+
+    const owned = await requireClientOwnership(req, res, client_id, 'POST /bookings/quick');
+    if (!owned) return;
 
     // ── Active plan gate ─────────────────────────────────────────────────────────
     const activePlan = await getActivePlanForClient(client_id);
@@ -1717,7 +1739,7 @@ router.get('/plans', (_req: Request, res: Response) => {
  *
  * Body: { client_id, plan_id, payment_method, reference?, notes? }
  */
-router.post('/payments', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/payments', requireRole('coach'), async (req: AuthenticatedRequest, res: Response) => {
     const coachId = req.coach!.sub;
     const { client_id, plan_id, payment_method, reference, notes } = req.body;
 
@@ -1754,7 +1776,7 @@ router.post('/payments', async (req: AuthenticatedRequest, res: Response) => {
  * Coach marks payment as received.
  * Atomically assigns sessions to the client.
  */
-router.patch('/payments/:paymentId/confirm', async (req: AuthenticatedRequest, res: Response) => {
+router.patch('/payments/:paymentId/confirm', requireRole('coach'), async (req: AuthenticatedRequest, res: Response) => {
     const coachId = req.coach!.sub;
     const paymentId = req.params['paymentId'] as string;
     log('PATCH /payments/confirm', `Coach ${coachId} confirming payment ${paymentId}`);
@@ -1777,7 +1799,7 @@ router.patch('/payments/:paymentId/confirm', async (req: AuthenticatedRequest, r
  * Returns the number of pending payments for the authenticated coach.
  * Lightweight endpoint — used for dashboard badge, avoids fetching full payment docs.
  */
-router.get('/payments/count', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/payments/count', requireRole('coach'), async (req: AuthenticatedRequest, res: Response) => {
     const coachId = req.coach!.sub;
     try {
         const payments = await getPendingPayments(coachId);
@@ -1792,7 +1814,7 @@ router.get('/payments/count', async (req: AuthenticatedRequest, res: Response) =
  * GET /api/payments/pending
  * Returns all pending payments for the authenticated coach.
  */
-router.get('/payments/pending', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/payments/pending', requireRole('coach'), async (req: AuthenticatedRequest, res: Response) => {
     const coachId = req.coach!.sub;
     log('GET /payments/pending', `Coach ${coachId} fetching pending payments`);
     try {
@@ -1808,7 +1830,7 @@ router.get('/payments/pending', async (req: AuthenticatedRequest, res: Response)
  * GET /api/payments/client/:clientId
  * Returns payment history for a specific client (coach-scoped).
  */
-router.get('/payments/client/:clientId', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/payments/client/:clientId', requireRole('coach'), async (req: AuthenticatedRequest, res: Response) => {
     const coachId = req.coach!.sub;
     const clientId = req.params['clientId'] as string;
     log('GET /payments/client', `Coach ${coachId} fetching payments for client ${clientId}`);

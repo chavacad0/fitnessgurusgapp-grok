@@ -1,51 +1,42 @@
 /**
  * Auth / Connect-to-Coach regression suite.
  *
- *   npm run test:auth
+ *   TEST_MONGODB_URI=mongodb://127.0.0.1:27017 npm run test:auth
  *
  * ISOLATION & SAFETY
- *  - Runs against a SEPARATE database (TEST_DB_NAME, default 'fitnessgurusg_regression_test')
- *    on the same MongoDB server as MONGO_URI. The real database is NEVER written to.
- *  - The real database name comes from DB_NAME in .env when that file exists, otherwise
- *    from REAL_DB_NAME. Aborts if that name is missing, equals the test DB, or the test
- *    DB name does not contain "test".
- *  - The real database is only READ (document counts before/after) to prove it is untouched.
- *  - Only the isolated test database is dropped at the end.
+ *  - Connects only through TEST_MONGODB_URI. It never reads MONGO_URI or .env.
+ *  - Uses TEST_DB_NAME when that name ends with "_test", otherwise
+ *    fitnessgurusg_regression_test.
+ *  - assertSafeTestDatabase runs before the test database is dropped.
+ *  - The suite does not open any other database.
  *
  * Google is not contacted: OAuth2Client.prototype.verifyIdToken is stubbed in-process,
  * so the route's own issuer / audience / email_verified checks are exercised for real.
  */
-import fs from 'fs';
-import path from 'path';
-import dotenv from 'dotenv';
-import { MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import type { AddressInfo } from 'net';
 import { assertSafeTestDatabase } from '../test/assertSafeTestDatabase';
 
 // ── 1. Environment isolation (must happen BEFORE any app module is imported) ──
-// .env is optional so this can run in CI without a secrets file. When .env
-// exists, its DB_NAME is the real database and is only ever counted, never written.
-const envPath = path.join(process.cwd(), '.env');
-const realEnv: Record<string, string> = fs.existsSync(envPath)
-    ? dotenv.parse(fs.readFileSync(envPath))
-    : {};
-const REAL_DB   = realEnv['DB_NAME'] ?? process.env.REAL_DB_NAME;
-const MONGO_URI = process.env.MONGO_URI ?? realEnv['MONGO_URI'];
-const TEST_DB   = process.env.TEST_DB_NAME ?? 'fitnessgurusg_regression_test';
+const TEST_MONGODB_URI = process.env.TEST_MONGODB_URI;
+const TEST_DB = process.env.TEST_DB_NAME ?? 'fitnessgurusg_regression_test';
 
-if (!MONGO_URI) throw new Error('MONGO_URI not set (environment or .env)');
-if (!REAL_DB) {
+if (!TEST_MONGODB_URI) {
     throw new Error(
-        'Real database name not set. Put DB_NAME in .env, or set REAL_DB_NAME, so this suite can prove that database is only read.',
+        'TEST_MONGODB_URI is not set. This suite does not read MONGO_URI or .env. ' +
+        'Point TEST_MONGODB_URI at a local MongoDB server.',
     );
 }
-if (!TEST_DB.toLowerCase().includes('test') || TEST_DB === REAL_DB) {
-    throw new Error(`Refusing to run: test DB "${TEST_DB}" is not an isolated test database.`);
+if (!TEST_DB.endsWith('_test')) {
+    throw new Error(`Refusing to run: test database "${TEST_DB}" must end with "_test".`);
 }
 
-process.env.MONGO_URI        = MONGO_URI;
+// The app's getDb() reads MONGO_URI. Point that process variable at the test
+// server only. The value is the test URI, never the caller's MONGO_URI.
+process.env.MONGO_URI        = TEST_MONGODB_URI;
 process.env.DB_NAME          = TEST_DB;
 process.env.NODE_ENV         = 'test';                 // disables authLimiter
+process.env.WHATSAPP_ENABLED = 'false';
 assertSafeTestDatabase(TEST_DB);
 process.env.JWT_SECRET       = 'regression-test-secret-not-real';
 process.env.GOOGLE_CLIENT_ID = 'test-client.apps.googleusercontent.com';
@@ -74,25 +65,14 @@ async function main() {
         iss: 'https://accounts.google.com', aud: AUD, email_verified: true, ...p,
     })).toString('base64');
 
-    // Read-only snapshot of the REAL database
-    const realClient = new MongoClient(MONGO_URI!);
-    await realClient.connect();
-    const realDb = realClient.db(REAL_DB);
-    const REAL_COLS = ['clients', 'coaches', 'bookings', 'payments', 'client_plans', 'checkins', 'coach_availability'];
-    const snapshot = async () => {
-        const out: Record<string, number> = {};
-        for (const c of REAL_COLS) out[c] = await realDb.collection(c).countDocuments({});
-        return out;
-    };
-    const realBefore = await snapshot();
-
-    // App modules (now bound to the TEST database)
+    // App modules (bound to the TEST database via TEST_MONGODB_URI)
     const express = (await import('express')).default;
     const jwt     = (await import('jsonwebtoken')).default;
     const bcrypt  = (await import('bcryptjs')).default;
     const { getDb, closeDb } = await import('../db/mongo');
     const routes     = (await import('../api/routes')).default;
     const authRoutes = (await import('../api/authRoutes')).default;
+    const whatsappRoutes = (await import('../api/whatsappRoutes')).default;
 
     const db = await getDb();
     if (db.databaseName !== TEST_DB) throw new Error(`Connected to ${db.databaseName}, expected ${TEST_DB}`);
@@ -109,6 +89,7 @@ async function main() {
     app.use(express.json());
     app.use('/api', routes);
     app.use('/api/auth', authRoutes);
+    app.use('/api/whatsapp', whatsappRoutes);
     const server = app.listen(0, '127.0.0.1');
     await new Promise(r => server.once('listening', r));
     const BASE = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -447,19 +428,66 @@ async function main() {
     // +1 is the deliberate duplicate row inserted above, not a side effect of sign-in.
     check('rejected attempts did not create extra clients', (await db.collection('clients').countDocuments({})) === clientsAtRole + 1);
 
+    section('Role guards and booking ownership');
+    r = await call('POST', '/api/coach/availability', {
+        date: d(4), start_time: '09:00', end_time: '10:00',
+    }, newTok);
+    check('client token cannot create coach availability → 403', r.status === 403, r);
+    const slotsAfterClient = await db.collection('coach_availability').countDocuments({});
+    check('client token did not create a slot', slotsAfterClient === 2);
+
+    r = await call('POST', '/api/whatsapp/send-message', { to: '+6500000000', message: 'hello' }, newTok);
+    check('client token cannot use WhatsApp → 403', r.status === 403, r);
+    r = await call('POST', '/api/whatsapp/send-message', { to: '+6500000000', message: 'hello' }, coachBTok);
+    check('WhatsApp sending is switched off → 503', r.status === 503 && /not available/i.test(r.body?.error ?? ''), r);
+    check('disabled WhatsApp reply has no message id', r.body?.messageId === undefined);
+
+    r = await call('GET', `/api/clients/${pwClientId}/plan`, undefined, coachBTok);
+    check('coach B cannot read coach A client plan → 403', r.status === 403, r);
+    r = await call('GET', `/api/clients/${pwClientId}/checkins`, undefined, coachBTok);
+    check('coach B cannot read coach A client check-ins → 403', r.status === 403, r);
+    r = await call('GET', `/api/clients/${pwClientId}/redflags`, undefined, coachBTok);
+    check('coach B cannot read coach A client red flags → 403', r.status === 403, r);
+
+    const noRoleTok = jwt.sign(
+        { sub: coachA.toString(), email: 'coach.a@test.local' },
+        process.env.JWT_SECRET!,
+    );
+    r = await call('GET', '/api/coach/availability', undefined, noRoleTok);
+    check('token with no role → 401', r.status === 401, r);
+    r = await call('GET', '/api/clients/me/profile', undefined, noRoleTok);
+    check('token with no role is also rejected on a client route → 401', r.status === 401, r);
+
+    r = await call('POST', '/api/bookings', {
+        client_id: pwClientId,
+        availability_slot_id: 'not-a-real-slot',
+    }, coachBTok);
+    const otherCoachBooking = JSON.stringify(r.body);
+    check('booking another coach\'s client → 403', r.status === 403, r);
+    check('that denial does not mention a plan', !/plan/i.test(otherCoachBooking));
+    await db.collection('client_plans').insertOne({
+        client_id: pwClientId, coach_id: coachA.toString(), plan_name: 'Starter', sessions_total: 4, sessions_used: 0,
+        start_date: d(0), expiry_date: d(60), status: 'active', created_at: new Date(), updated_at: new Date(),
+    });
+    r = await call('POST', '/api/bookings', {
+        client_id: pwClientId,
+        availability_slot_id: 'not-a-real-slot',
+    }, coachBTok);
+    check('same 403 after that client has a plan (no existence leak)',
+        r.status === 403 && JSON.stringify(r.body) === otherCoachBooking, r);
+
+    r = await call('POST', '/api/bookings', {
+        client_id: { $ne: null },
+        availability_slot_id: 'not-a-real-slot',
+    }, coachBTok);
+    check('client_id operator object → 400', r.status === 400, r);
+
     // ── Teardown ────────────────────────────────────────────────────────────
     server.close();
     const testDbName = db.databaseName;
-    if (testDbName === TEST_DB && testDbName !== REAL_DB) {
-        assertSafeTestDatabase(testDbName);
-        await db.dropDatabase();
-    }
+    assertSafeTestDatabase(testDbName);
+    if (testDbName === TEST_DB) await db.dropDatabase();
     await closeDb();
-
-    section('Real database untouched (read-only document counts)');
-    const realAfter = await snapshot();
-    for (const c of REAL_COLS) check(`${c}: ${realBefore[c]} → ${realAfter[c]}`, realBefore[c] === realAfter[c]);
-    await realClient.close();
 
     console.log(`\n${failures.length === 0 ? '✅' : '❌'} ${passed} passed, ${failures.length} failed`);
     if (failures.length) { console.log('Failed:\n - ' + failures.join('\n - ')); process.exit(1); }

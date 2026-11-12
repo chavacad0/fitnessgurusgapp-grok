@@ -18,6 +18,7 @@ import {
 import { Client } from '../types';
 import { toPublicCoach } from '../models/coachModel';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/authMiddleware';
+import { requireRole } from '../middleware/requireRole';
 import { clientAuthMiddleware } from '../middleware/clientAuthMiddleware';
 import { authLimiter } from '../middleware/rateLimiter';
 
@@ -714,7 +715,7 @@ router.post('/client-register', authLimiter, async (req: Request, res: Response)
  * Coach shares this code with clients verbally / via WhatsApp.
  * Clients enter it in the registration screen to link themselves to this coach.
  */
-router.get('/invite-code', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/invite-code', authMiddleware, requireRole('coach'), async (req: AuthenticatedRequest, res: Response) => {
     const coachId = req.coach!.sub;
     log('GET /auth/invite-code', `Coach ${coachId} requesting invite code`);
 

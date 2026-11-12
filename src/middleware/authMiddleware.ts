@@ -80,10 +80,20 @@ export function authMiddleware(
             return;
         }
 
+        // Fail closed. A token with no role, or an unexpected role, is not a coach.
+        // Older app builds that omitted role must sign in again.
+        if (decoded.role !== 'coach' && decoded.role !== 'client') {
+            res.status(401).json({
+                success: false,
+                error: 'Your session has expired. Please log in again.',
+            });
+            return;
+        }
+
         req.coach = {
             sub:      decoded.sub,
             email:    decoded.email,
-            role:     decoded.role ?? 'coach',  // default 'coach' for pre-role tokens
+            role:     decoded.role,
             clientId: decoded.clientId,         // undefined for coaches, UUID for clients
         };
         next();
