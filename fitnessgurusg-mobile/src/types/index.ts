@@ -25,7 +25,9 @@ export interface AuthUser {
     email: string;
     name: string;
     role: Role;
-    clientId?: string;  // clients only; the client's own record ID for API calls
+    clientId?: string;  // clients only; clients.id UUID used for API calls
+    /** Clients only. False until an invitation code links them to a coach. */
+    hasCoach?: boolean;
 }
 
 export interface LoginResponse {
@@ -126,7 +128,8 @@ export interface ClientUserProfile {
     id: string;
     email: string;
     name: string;
-    coach_id: string;   // which coach this client belongs to
+    coach_id?: string | null;   // absent until the client connects with an invite code
+    has_coach?: boolean;
 }
 
 /**

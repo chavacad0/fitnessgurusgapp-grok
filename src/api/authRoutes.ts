@@ -173,6 +173,16 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
             return;
         }
 
+        // Google-only coaches have no password hash. Treat that the same as a wrong password.
+        if (!coach.password_hash) {
+            log('POST /auth/login', `⚠️ Login failed: no password set for ${email}`);
+            res.status(401).json({
+                success: false,
+                error: 'Invalid credentials'
+            });
+            return;
+        }
+
         // Verify password
         const passwordMatch = await bcrypt.compare(password, coach.password_hash);
 
@@ -627,13 +637,19 @@ router.post('/client-register', authLimiter, async (req: Request, res: Response)
         const clientDocId = (client as any)._id?.toString() ?? '';
 
         // ── Issue JWT ─────────────────────────────────────────────────────────────
+        // sub = clients.id (UUID) — the same identifier used by client-login and
+        // Google client sign-in. Client endpoints look the client up by this id.
+        //
+        // Older self-registration tokens put the Mongo _id in `sub` and the UUID
+        // in a `clientId` claim. Those sessions keep working: clientAuthMiddleware
+        // still prefers the `clientId` claim when it is present. New tokens do
+        // not put a Mongo id in `sub`, so every login path agrees.
         const secret = process.env.JWT_SECRET!;
         const token = jwt.sign(
             {
-                sub:      clientDocId,
-                email:    client.email,
-                role:     'client',
-                clientId: client.id,
+                sub:   client.id,
+                email: client.email,
+                role:  'client',
             },
             secret,
             { expiresIn: JWT_EXPIRY },
@@ -816,11 +832,12 @@ router.post('/client-login', authLimiter, async (req: Request, res: Response) =>
             success: true,
             token,
             client: {
-                _id:      mongoId,          // MongoDB ObjectId — kept for AuthUser.id in mobile
-                id:       client.id,        // UUID — the canonical identifier
-                email:    client.email,
-                name:     client.name,
-                coach_id: client.coach_id,
+                _id:       mongoId,          // MongoDB ObjectId — kept for AuthUser.id in mobile
+                id:        client.id,        // UUID — the canonical identifier
+                email:     client.email,
+                name:      client.name,
+                coach_id:  client.coach_id ?? null,
+                has_coach: !!client.coach_id,
             },
         });
     } catch (error: any) {

@@ -846,7 +846,7 @@ router.post('/payments/client-confirm', clientAuthMiddleware, async (req: Reques
         }
 
         log('POST /payments/client-confirm', `✅ Plan activated for client ${clientId}`);
-        res.json({ success: true, ...result });
+        res.json(result);
     } catch (error: any) {
         if (error.statusCode) {
             res.status(error.statusCode).json({ success: false, error: error.message });
@@ -1000,13 +1000,17 @@ router.get('/clients/:clientId/plan', async (req: AuthenticatedRequest, res: Res
  */
 router.get('/clients/:clientId/session-status', async (req: AuthenticatedRequest, res: Response) => {
     const clientId = req.params['clientId'] as string;
-    const requesterId = req.coach!.sub;
+    const requesterId = req.coach!.sub;          // UUID on new client tokens; Mongo _id on older ones
+    const jwtClientId = req.coach!.clientId;     // UUID claim on pre-fix self-registration tokens
     const requesterRole = req.coach!.role;
 
     try {
         if (requesterRole === 'client') {
-            // Clients may only view their own session status
-            if (requesterId !== clientId) {
+            // Own record only. Match either identifier the token may carry so
+            // older sessions (sub = Mongo _id, clientId claim = UUID) still work,
+            // and a client can never read another client's plan by guessing an id.
+            const isOwner = requesterId === clientId || jwtClientId === clientId;
+            if (!isOwner) {
                 res.status(403).json({ success: false, error: 'Access denied.' });
                 return;
             }

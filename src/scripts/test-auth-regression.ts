@@ -5,9 +5,10 @@
  *
  * ISOLATION & SAFETY
  *  - Runs against a SEPARATE database (TEST_DB_NAME, default 'fitnessgurusg_regression_test')
- *    on the same MongoDB server as MONGO_URI. The real DB_NAME from .env is NEVER written to.
- *  - Aborts before connecting if the test DB name equals the real DB name or does not
- *    contain "test".
+ *    on the same MongoDB server as MONGO_URI. The real database is NEVER written to.
+ *  - The real database name comes from DB_NAME in .env when that file exists, otherwise
+ *    from REAL_DB_NAME. Aborts if that name is missing, equals the test DB, or the test
+ *    DB name does not contain "test".
  *  - The real database is only READ (document counts before/after) to prove it is untouched.
  *  - Only the isolated test database is dropped at the end.
  *
@@ -21,12 +22,22 @@ import { MongoClient, ObjectId } from 'mongodb';
 import type { AddressInfo } from 'net';
 
 // ── 1. Environment isolation (must happen BEFORE any app module is imported) ──
-const realEnv    = dotenv.parse(fs.readFileSync(path.join(process.cwd(), '.env')));
-const REAL_DB    = realEnv['DB_NAME'];
-const MONGO_URI  = process.env.MONGO_URI ?? realEnv['MONGO_URI'];
-const TEST_DB    = process.env.TEST_DB_NAME ?? 'fitnessgurusg_regression_test';
+// .env is optional so this can run in CI without a secrets file. When .env
+// exists, its DB_NAME is the real database and is only ever counted, never written.
+const envPath = path.join(process.cwd(), '.env');
+const realEnv: Record<string, string> = fs.existsSync(envPath)
+    ? dotenv.parse(fs.readFileSync(envPath))
+    : {};
+const REAL_DB   = realEnv['DB_NAME'] ?? process.env.REAL_DB_NAME;
+const MONGO_URI = process.env.MONGO_URI ?? realEnv['MONGO_URI'];
+const TEST_DB   = process.env.TEST_DB_NAME ?? 'fitnessgurusg_regression_test';
 
-if (!MONGO_URI) throw new Error('MONGO_URI not set');
+if (!MONGO_URI) throw new Error('MONGO_URI not set (environment or .env)');
+if (!REAL_DB) {
+    throw new Error(
+        'Real database name not set. Put DB_NAME in .env, or set REAL_DB_NAME, so this suite can prove that database is only read.',
+    );
+}
 if (!TEST_DB.toLowerCase().includes('test') || TEST_DB === REAL_DB) {
     throw new Error(`Refusing to run: test DB "${TEST_DB}" is not an isolated test database.`);
 }
@@ -168,6 +179,7 @@ async function main() {
     check('google_id linked, password_hash preserved', doc?.google_id === 'g-pw' && !!doc?.password_hash);
     r = await call('POST', '/api/auth/client-login', { email: 'pw@test.local', password: 'ClientPass123' });
     check('email/password login still works (sub = UUID)', r.status === 200 && decode(r.body?.token)?.sub === pwClientId, r.status);
+    check('email/password login reports has_coach', r.body?.client?.has_coach === true && r.body?.client?.coach_id === coachA.toString());
 
     section('Google login — token verification failures');
     const before = await db.collection('clients').countDocuments({});
@@ -268,10 +280,75 @@ async function main() {
     r = await call('POST', '/api/auth/client-register', { name: 'Reg One', email: 'reg1@test.local', password: 'Password123', coach_id: coachB.toString() });
     check('no code → 201, has_coach false (body coach_id ignored)', r.status === 201 && r.body?.client?.has_coach === false, r);
     check('stored without coach_id', !(await db.collection('clients').findOne({ email: 'reg1@test.local' }))?.coach_id);
+    check('new register JWT sub = clients.id UUID (not the Mongo _id)',
+        UUID_RE.test(r.body?.client?.id ?? '') && decode(r.body?.token)?.sub === r.body?.client?.id
+        && !/^[a-f0-9]{24}$/i.test(decode(r.body?.token)?.sub ?? ''),
+        decode(r.body?.token));
+    const reg1Tok = r.body?.token;
+    const reg1Id  = r.body?.client?.id as string;
+    r = await call('GET', '/api/clients/me/profile', undefined, reg1Tok);
+    check('new register token loads own profile', r.status === 200, r);
+    r = await call('GET', '/api/clients/me/availability', undefined, reg1Tok);
+    check('new register token: coachless availability is onboarding, not 404', r.status === 200 && r.body?.has_coach === false, r);
+    r = await call('POST', '/api/auth/client-login', { email: 'reg1@test.local', password: 'Password123' });
+    check('login after register still uses clients.id', r.status === 200 && decode(r.body?.token)?.sub === reg1Id && r.body?.client?.has_coach === false, r);
     r = await call('POST', '/api/auth/client-register', { name: 'Reg Two', email: 'reg2@test.local', password: 'Password123', inviteCode: 'WRONG1' });
     check('invalid code → 400 and no account created', r.status === 400 && (await db.collection('clients').countDocuments({ email: 'reg2@test.local' })) === 0, r);
     r = await call('POST', '/api/auth/client-register', { name: 'Reg Three', email: 'reg3@test.local', password: 'Password123', inviteCode: 'xyz789' });
     check('valid code → linked to that coach', r.status === 201 && r.body?.client?.coach_id === coachB.toString(), r);
+    check('register-with-code JWT sub is that client UUID', decode(r.body?.token)?.sub === r.body?.client?.id && UUID_RE.test(r.body?.client?.id ?? ''));
+
+    section('A client cannot access another client\'s data');
+    const otherBooking = await db.collection('bookings').insertOne({
+        coach_id: coachA.toString(),
+        client_id: pwClientId,
+        availability_slot_id: slots[1]._id.toString(),
+        date: d(3),
+        start_time: '10:00',
+        end_time: '11:00',
+        status: 'booked',
+        created_at: new Date(),
+        updated_at: new Date(),
+    });
+    r = await call('GET', '/api/clients/me/bookings', undefined, newTok);
+    const ownClientIds = (r.body?.bookings ?? []).map((b: any) => b.client_id);
+    check('own booking list never includes the other client',
+        r.status === 200 && ownClientIds.length > 0 && ownClientIds.every((id: string) => id === newId), r.body);
+    r = await call('PATCH', `/api/clients/me/bookings/${otherBooking.insertedId.toString()}/cancel`, undefined, newTok);
+    check('cannot cancel the other client\'s booking → 404', r.status === 404, r);
+    check('other client booking unchanged', (await db.collection('bookings').findOne({ _id: otherBooking.insertedId }))?.status === 'booked');
+    check('other client coach link unchanged', (await db.collection('clients').findOne({ id: pwClientId }))?.coach_id === coachA.toString());
+
+    r = await call('GET', `/api/clients/${pwClientId}/checkins`, undefined, newTok);
+    check('cannot read another client\'s check-ins → 403', r.status === 403, r);
+    r = await call('POST', `/api/clients/${pwClientId}/checkins`, { date: d(0), type: 'MANUAL', metrics: { energy: 5, hunger: 5 } }, newTok);
+    check('cannot submit another client\'s check-in → 403', r.status === 403, r);
+    r = await call('GET', `/api/clients/${pwClientId}/session-status`, undefined, newTok);
+    check('cannot read another client\'s session status → 403', r.status === 403, r);
+    r = await call('GET', `/api/clients/${pwClientId}/profile`, undefined, newTok);
+    check('cannot read another client\'s coach profile route → 403', r.status === 403, r);
+    r = await call('GET', `/api/clients/${pwClientId}/plan`, undefined, newTok);
+    check('cannot read another client\'s plan → 403', r.status === 403, r);
+    r = await call('GET', `/api/payments/client/${pwClientId}`, undefined, newTok);
+    check('cannot read another client\'s payments → 403', r.status === 403, r);
+    r = await call('GET', '/api/clients', undefined, newTok);
+    check('client token does not list the other client', !JSON.stringify(r.body?.clients ?? []).includes(pwClientId), r.body);
+
+    // Supplied ids in the body must not retarget profile or coach linkage.
+    r = await call('PATCH', '/api/clients/me/profile', { name: 'Still Me', coach_id: coachB.toString(), id: pwClientId }, newTok);
+    check('profile update ignores coach_id and id in the body', r.status === 200, r);
+    doc = await db.collection('clients').findOne({ id: newId });
+    check('coach relationship unchanged by profile body', doc?.coach_id === coachA.toString() && doc?.name === 'Still Me');
+    check('other client name untouched', (await db.collection('clients').findOne({ id: pwClientId }))?.name === 'Pw Client');
+
+    // Older self-registration tokens (sub = Mongo _id, clientId claim = UUID) still
+    // authorise only that UUID, including session-status.
+    r = await call('GET', `/api/clients/${pwClientId}/session-status`, undefined, regStyleTok);
+    check('old register-style token can read its own session status', r.status === 200, r);
+    r = await call('GET', `/api/clients/${newId}/checkins`, undefined, regStyleTok);
+    check('old register-style token cannot read another client\'s check-ins → 403', r.status === 403, r);
+    r = await call('GET', `/api/clients/${newId}/session-status`, undefined, regStyleTok);
+    check('old register-style token cannot read another client\'s session status → 403', r.status === 403, r);
 
     // ── Teardown ────────────────────────────────────────────────────────────
     server.close();

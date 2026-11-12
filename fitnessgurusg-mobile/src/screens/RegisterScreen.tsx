@@ -18,29 +18,23 @@ type Props = {
 };
 
 /**
- * RegisterScreen — invite-only client account creation.
+ * RegisterScreen — client account creation.
  *
- * Visual design rationale:
- *   - Invite code gets an ACCENT CARD treatment (teal tint) to signal it is
- *     the gate — not just another field. If they don't have a code, they
- *     understand immediately before filling anything else.
- *   - Remaining fields live in a clean flat section below — no redundant card
- *     border wrapping them. White surface on off-white background provides
- *     natural separation with less visual noise.
- *   - Four-step progress dots orient the user — they see a short journey.
- *   - Field labels use UPPERCASE + letter-spacing — standard premium app
- *     pattern (used by Stripe, DBS, Revolut).
+ * An invite code is optional. Leave it blank to create the account and
+ * connect to a coach afterwards. A code is checked by the server; a wrong
+ * code does not create an account. The app never sends a coach id.
  *
  * Security: Role is never sent from the frontend. Backend enforces role: 'client'.
  */
 export default function RegisterScreen({ navigation }: Props) {
     const { login } = useAuth();
 
-    const [name,      setName]      = useState('');
-    const [email,     setEmail]     = useState('');
-    const [password,  setPassword]  = useState('');
-    const [loading,   setLoading]   = useState(false);
-    const [error,     setError]     = useState<string | null>(null);
+    const [name,       setName]       = useState('');
+    const [email,      setEmail]      = useState('');
+    const [password,   setPassword]   = useState('');
+    const [inviteCode, setInviteCode] = useState('');
+    const [loading,    setLoading]    = useState(false);
+    const [error,      setError]      = useState<string | null>(null);
 
     // Refs for keyboard-driven field progression
     const nameRef     = useRef<RNTextInput>(null);
@@ -61,6 +55,11 @@ export default function RegisterScreen({ navigation }: Props) {
             setError('Password must be at least 8 characters.');
             return;
         }
+        const code = inviteCode.trim();
+        if (code && (code.length < 4 || code.length > 16)) {
+            setError('Invite codes are 4 to 16 characters. Check with your coach, or leave the field blank.');
+            return;
+        }
 
         setLoading(true);
         setError(null);
@@ -69,9 +68,10 @@ export default function RegisterScreen({ navigation }: Props) {
             console.log('[REGISTER ①] handleRegister() started');
 
             const regResult = await registerClient({
-                name:     name.trim(),
-                email:    email.trim().toLowerCase(),
+                name:       name.trim(),
+                email:      email.trim().toLowerCase(),
                 password,
+                inviteCode: code || undefined,
             });
 
             console.log('[REGISTER ②] registerClient() succeeded');
@@ -90,6 +90,7 @@ export default function RegisterScreen({ navigation }: Props) {
                 name:     regResult.client.name,
                 role:     'client' as const,
                 clientId: regResult.client.id,
+                hasCoach: regResult.client.has_coach,
             };
             console.log('[REGISTER ④] calling AuthContext.login() with role:', userToSave.role);
 
@@ -109,6 +110,8 @@ export default function RegisterScreen({ navigation }: Props) {
                 setError('Enter a valid email address.');
             } else if (raw.toLowerCase().includes('temporarily unavailable')) {
                 setError('Registration is temporarily unavailable. Please try again shortly.');
+            } else if (raw.toLowerCase().includes('invite') || raw.toLowerCase().includes("doesn't match") || raw.toLowerCase().includes('does not match')) {
+                setError(raw || "That invite code doesn't match. Please check with your coach.");
             } else {
                 setError(raw || 'Something went wrong. Please try again.');
             }
@@ -156,7 +159,7 @@ export default function RegisterScreen({ navigation }: Props) {
                     <View style={s.pageHeader}>
                         <Text style={s.title}>Create your account</Text>
                         <Text style={s.subtitle}>
-                            Sign up to start your fitness programme.
+                            Create an account to start your fitness programme. A coach invite code is optional.
                         </Text>
                     </View>
 
@@ -225,6 +228,27 @@ export default function RegisterScreen({ navigation }: Props) {
                         </View>
                     </View>
 
+                    {/* ── Optional invite code ──────────────────────────────── */}
+                    <View style={s.codeCard}>
+                        <Text style={s.sectionLabel}>COACH INVITE CODE · OPTIONAL</Text>
+                        <Text style={s.codeHelp}>
+                            If your coach gave you a code, enter it now and you'll be connected straight away. No code yet? Leave this blank — you can connect later from the Book tab.
+                        </Text>
+                        <TextInput
+                            style={s.codeInput}
+                            placeholder="ABC234"
+                            placeholderTextColor={colors.placeholder}
+                            value={inviteCode}
+                            onChangeText={t => { setInviteCode(t.toUpperCase()); setError(null); }}
+                            autoCapitalize="characters"
+                            autoCorrect={false}
+                            maxLength={16}
+                            editable={!loading}
+                            accessibilityLabel="Coach invite code, optional"
+                            returnKeyType="done"
+                            onSubmitEditing={handleRegister}
+                        />
+                    </View>
 
                     {/* ── Error banner ─────────────────────────────────────── */}
                     {error ? (
@@ -393,6 +417,34 @@ const s = StyleSheet.create({
         color: colors.placeholder,
         marginTop: spacing.xs,
         lineHeight: 16,
+    },
+
+    codeCard: {
+        backgroundColor: colors.accentSubtle,
+        borderRadius: radius.cardLg,
+        borderWidth: 1,
+        borderColor: colors.accent,
+        padding: spacing.xl,
+        marginBottom: spacing.lg,
+    },
+    codeHelp: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        lineHeight: 18,
+        marginBottom: spacing.base,
+    },
+    codeInput: {
+        height: componentSize.input,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radius.input,
+        paddingHorizontal: spacing.base,
+        fontSize: 18,
+        fontWeight: '700',
+        letterSpacing: 3,
+        textAlign: 'center',
+        color: colors.textPrimary,
     },
 
     // ── Error banner ──────────────────────────────────────────────────────────
