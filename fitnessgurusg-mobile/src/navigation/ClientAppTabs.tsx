@@ -77,8 +77,14 @@ export default function ClientAppTabs() {
                     component={tab.component}
                     options={{
                         title: tab.label,
-                        // Home and Profile draw their own navy header.
-                        headerShown: tab.name !== 'ClientHome' && tab.name !== 'ClientProfile',
+                        // These screens draw their own navy header.
+                        headerShown: !(
+                            tab.name === 'ClientHome'
+                            || tab.name === 'ClientProfile'
+                            || tab.name === 'ClientProgress'
+                            || tab.name === 'ClientBook'
+                            || tab.name === 'ClientPlan'
+                        ),
                     }}
                 />
             ))}
