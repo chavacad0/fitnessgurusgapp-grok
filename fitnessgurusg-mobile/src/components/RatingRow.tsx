@@ -87,6 +87,7 @@ export default function RatingRow({
                             accessibilityRole="button"
                             accessibilityLabel={`Rate ${n} out of 10`}
                             accessibilityState={{ selected }}
+                            hitSlop={{ top: 6, bottom: 6, left: 2, right: 2 }}
                             style={[
                                 s.btn,
                                 selected && { backgroundColor: accentColor, borderColor: accentColor },

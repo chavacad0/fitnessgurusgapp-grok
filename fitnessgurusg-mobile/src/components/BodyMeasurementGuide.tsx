@@ -289,7 +289,11 @@ export default function BodyMeasurementGuide({
                                         <Text style={s.unitText}>cm</Text>
                                     </View>
                                 ) : (
-                                    <Text style={[s.valueDisplay, isActive && s.valueDisplayActive]}>
+                                    <Text style={[
+                                        s.valueDisplay,
+                                        savedVal == null && s.valueUnset,
+                                        isActive && s.valueDisplayActive,
+                                    ]}>
                                         {savedVal != null ? `${savedVal} cm` : 'Not set'}
                                     </Text>
                                 )}
@@ -523,6 +527,7 @@ const s = StyleSheet.create({
         fontSize:   13,
         color:      colors.textSecondary,
     },
+    valueUnset: { color: colors.textTertiary, fontWeight: '400' },
     valueDisplayActive: { color: colors.accent, fontWeight: '600' },
 
     // Input group

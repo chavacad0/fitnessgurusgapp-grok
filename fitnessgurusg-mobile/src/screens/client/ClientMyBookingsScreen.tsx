@@ -19,9 +19,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, radius, typography, shadows } from '../../theme/theme';
+import { colors, spacing, typography } from '../../theme/theme';
 import { getClientBookings, clientCancelBooking } from '../../services/apiClient';
 import { BookingSlot } from '../../types';
+import KitStatusBadge from '../../components/StatusBadge';
+import EmptyState from '../../components/EmptyState';
+import Card from '../../components/Card';
+import Button from '../../components/Button';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -41,26 +45,14 @@ function fmtDate(date: string): string {
 
 // ─── Status badge ──────────────────────────────────────────────────────────────
 
-const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
-    booked:    { label: 'Upcoming',  bg: '#EEF2FF', text: '#4F46E5' },
-    confirmed: { label: 'Upcoming',  bg: '#EEF2FF', text: '#4F46E5' },
-    completed: { label: 'Completed', bg: '#F0FDF4', text: '#16A34A' },
-    cancelled: { label: 'Cancelled', bg: '#FEF2F2', text: '#DC2626' },
-};
-
 function StatusBadge({ status }: { status: string }) {
-    const cfg = STATUS_CONFIG[status] ?? { label: status, bg: colors.border, text: colors.textSecondary };
-    return (
-        <View style={[badge.wrap, { backgroundColor: cfg.bg }]}>
-            <Text style={[badge.txt, { color: cfg.text }]}>{cfg.label}</Text>
-        </View>
-    );
+    if (status === 'booked' || status === 'confirmed') {
+        return <KitStatusBadge variant="booked" label="Upcoming" />;
+    }
+    if (status === 'completed') return <KitStatusBadge variant="completed" />;
+    if (status === 'cancelled') return <KitStatusBadge variant="cancelled" />;
+    return <KitStatusBadge status="neutral" label={status} />;
 }
-
-const badge = StyleSheet.create({
-    wrap: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 3 },
-    txt:  { fontSize: 11, fontWeight: '700', letterSpacing: 0.3 },
-});
 
 // ─── Booking row ───────────────────────────────────────────────────────────────
 
@@ -73,7 +65,7 @@ function BookingRow({ item, onCancel }: BookingRowProps) {
     const isUpcoming = item.status === 'booked' || item.status === 'confirmed';
 
     return (
-        <View style={s.card}>
+        <Card style={s.card}>
             <View style={s.cardTop}>
                 <View style={s.cardLeft}>
                     <Text style={s.cardDate}>{fmtDate(item.date)}</Text>
@@ -91,7 +83,7 @@ function BookingRow({ item, onCancel }: BookingRowProps) {
                     <Text style={s.cancelLinkTxt}>Cancel booking</Text>
                 </TouchableOpacity>
             )}
-        </View>
+        </Card>
     );
 }
 
@@ -181,11 +173,9 @@ export default function ClientMyBookingsScreen() {
         return (
             <SafeAreaView style={s.root} edges={['bottom']}>
                 <View style={s.centred}>
-                    <Ionicons name="alert-circle-outline" size={48} color={colors.errorText} />
+                    <Ionicons name="cloud-offline-outline" size={36} color={colors.textSecondary} />
                     <Text style={s.errorTxt}>{error}</Text>
-                    <TouchableOpacity style={s.retryBtn} onPress={() => loadBookings()}>
-                        <Text style={s.retryTxt}>Try again</Text>
-                    </TouchableOpacity>
+                    <Button label="Try again" onPress={() => loadBookings()} />
                 </View>
             </SafeAreaView>
         );
@@ -216,19 +206,13 @@ export default function ClientMyBookingsScreen() {
                     ) : null
                 }
                 ListEmptyComponent={() => (
-                    <View style={s.emptyState}>
-                        <Ionicons name="calendar-outline" size={56} color={colors.border} />
-                        <Text style={s.emptyTitle}>No bookings yet</Text>
-                        <Text style={s.emptyHint}>Book your first session to get started.</Text>
-                        <TouchableOpacity
-                            style={s.bookNowBtn}
-                            onPress={() => navigation.goBack()}
-                            accessibilityRole="button"
-                            accessibilityLabel="Book a session"
-                        >
-                            <Text style={s.bookNowTxt}>Browse available sessions</Text>
-                        </TouchableOpacity>
-                    </View>
+                    <EmptyState
+                        fill
+                        preset="noBookings"
+                        subtitle="Book your first session to get started."
+                        actionLabel="Browse available sessions"
+                        onAction={() => navigation.goBack()}
+                    />
                 )}
             />
         </SafeAreaView>
@@ -250,15 +234,7 @@ const s = StyleSheet.create({
     },
 
     // ── Booking card ──────────────────────────────────────────────────────────
-    card: {
-        backgroundColor: colors.surface,
-        borderRadius:    radius.card,
-        borderWidth:     1,
-        borderColor:     colors.border,
-        padding:         spacing.base,
-        marginBottom:    spacing.sm,
-        ...shadows.card,
-    },
+    card: { marginBottom: spacing.sm },
     cardTop:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
     cardLeft: { flex: 1, gap: 2 },
     cardDate: { ...typography.label, fontWeight: '600', color: colors.textPrimary },
@@ -279,27 +255,4 @@ const s = StyleSheet.create({
     centred:  { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.base },
     hint:     { ...typography.body, color: colors.textSecondary, textAlign: 'center' },
     errorTxt: { ...typography.body, color: colors.errorText, textAlign: 'center' },
-    retryBtn: {
-        backgroundColor: colors.accent,
-        borderRadius:    radius.md,
-        paddingHorizontal: spacing.xl,
-        paddingVertical:   spacing.sm,
-    },
-    retryTxt: { fontSize: 14, fontWeight: '600', color: '#fff' },
-
-    emptyState: {
-        flex: 1, alignItems: 'center', justifyContent: 'center',
-        paddingTop: 80, gap: spacing.base, paddingHorizontal: spacing.xl,
-    },
-    emptyTitle:  { ...typography.h3, color: colors.textPrimary },
-    emptyHint:   { ...typography.body, color: colors.textSecondary, textAlign: 'center' },
-    bookNowBtn:  {
-        marginTop:       spacing.base,
-        backgroundColor: colors.accent,
-        borderRadius:    radius.card,
-        paddingHorizontal: spacing.xl,
-        paddingVertical:   spacing.base,
-        ...shadows.card,
-    },
-    bookNowTxt: { fontSize: 15, fontWeight: '700', color: '#fff' },
 });

@@ -37,6 +37,9 @@ import {
     connectToCoach,
 } from '../../services/apiClient';
 import { CoachAvailabilitySlot, BookingSlot } from '../../types';
+import KitStatusBadge from '../../components/StatusBadge';
+import EmptyState from '../../components/EmptyState';
+import Button from '../../components/Button';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -280,25 +283,14 @@ function ConfirmModal({ slot, loading, onConfirm, onCancel }: ConfirmModalProps)
 
 // ─── Booking status badge ─────────────────────────────────────────────────────
 
-const STATUS_CFG: Record<string, { label: string; bg: string; text: string }> = {
-    booked:    { label: 'Upcoming',  bg: '#EEF2FF', text: '#4F46E5' },
-    confirmed: { label: 'Upcoming',  bg: '#EEF2FF', text: '#4F46E5' },
-    completed: { label: 'Completed', bg: '#F0FDF4', text: '#16A34A' },
-    cancelled: { label: 'Cancelled', bg: '#FEF2F2', text: '#DC2626' },
-};
-
 function StatusBadge({ status }: { status: string }) {
-    const cfg = STATUS_CFG[status] ?? { label: status, bg: colors.border, text: colors.textSecondary };
-    return (
-        <View style={[bdg.wrap, { backgroundColor: cfg.bg }]}>
-            <Text style={[bdg.txt, { color: cfg.text }]}>{cfg.label}</Text>
-        </View>
-    );
+    if (status === 'booked' || status === 'confirmed') {
+        return <KitStatusBadge variant="booked" label="Upcoming" />;
+    }
+    if (status === 'completed') return <KitStatusBadge variant="completed" />;
+    if (status === 'cancelled') return <KitStatusBadge variant="cancelled" />;
+    return <KitStatusBadge status="neutral" label={status} />;
 }
-const bdg = StyleSheet.create({
-    wrap: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 3 },
-    txt:  { fontSize: 11, fontWeight: '700', letterSpacing: 0.3 },
-});
 
 // ─── Connect-to-Coach card (shown when the client has no coach yet) ──────────
 
@@ -358,18 +350,14 @@ function ConnectCoachCard({ onConnected }: { onConnected: () => void }) {
 
             {errorMsg && <Text style={cc.error}>{errorMsg}</Text>}
 
-            <TouchableOpacity
-                style={[cc.btn, !canSubmit && cc.btnDisabled]}
+            <Button
+                label="Connect to coach"
                 onPress={handleConnect}
                 disabled={!canSubmit}
-                activeOpacity={0.85}
-                accessibilityRole="button"
+                loading={submitting}
+                fullWidth
                 accessibilityLabel="Connect to coach"
-            >
-                {submitting
-                    ? <ActivityIndicator color="#fff" />
-                    : <Text style={cc.btnTxt}>Connect to coach</Text>}
-            </TouchableOpacity>
+            />
 
             <Text style={cc.hint}>Don't have a code? Ask your coach to share it from their profile.</Text>
         </View>
@@ -410,16 +398,6 @@ const cc = StyleSheet.create({
         backgroundColor: colors.background,
     },
     error: { ...typography.body, color: colors.errorText, textAlign: 'center' },
-    btn: {
-        alignSelf: 'stretch',
-        backgroundColor: ACCENT,
-        borderRadius: radius.md,
-        paddingVertical: spacing.base,
-        alignItems: 'center',
-        marginTop: spacing.xs,
-    },
-    btnDisabled: { opacity: 0.5 },
-    btnTxt: { fontSize: 16, fontWeight: '700', color: '#fff' },
     hint:  { ...typography.micro, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xs },
 });
 
@@ -598,15 +576,14 @@ export default function ClientBookingScreen() {
 
                 {/* ── Slots for selected date ──────────────────────────────── */}
                 {slotsForDate.length === 0 ? (
-                    <View style={s.emptyDate}>
-                        <Ionicons name="calendar-outline" size={40} color={colors.border} />
-                        <Text style={s.emptyDateTitle}>No available sessions on this date.</Text>
-                        <Text style={s.emptyDateHint}>
-                            {availableDates.size > 0
-                                ? 'Check dates with a green dot for open slots.'
-                                : "Your coach hasn't posted any open slots yet.\nPull down to refresh."}
-                        </Text>
-                    </View>
+                    <EmptyState
+                        compact
+                        icon="calendar-outline"
+                        title="No available sessions on this date."
+                        subtitle={availableDates.size > 0
+                            ? 'Check dates with a green dot for open slots.'
+                            : "Your coach hasn't posted any open slots yet. Pull down to refresh."}
+                    />
                 ) : (
                     <>
                         {slotsForDate.map(slot => (
@@ -640,11 +617,11 @@ export default function ClientBookingScreen() {
                     <Text style={s.sectionLabel}>MY UPCOMING BOOKINGS</Text>
 
                     {myBookings.length === 0 ? (
-                        <View style={s.emptyBookings}>
-                            <Text style={s.emptyBookingsTxt}>
-                                No upcoming sessions — book one above!
-                            </Text>
-                        </View>
+                        <EmptyState
+                            compact
+                            icon="calendar-outline"
+                            title="No upcoming sessions — book one above."
+                        />
                     ) : (
                         myBookings.map(b => (
                             <View key={b._id ?? b.id} style={s.bookingCard}>
@@ -708,19 +685,6 @@ const s = StyleSheet.create({
     },
     availPillTxt: { fontSize: 11, fontWeight: '700', color: GREEN },
 
-    // ── Empty date state ──────────────────────────────────────────────────────
-    emptyDate: {
-        alignItems: 'center', gap: spacing.sm,
-        paddingVertical: spacing.xl,
-    },
-    emptyDateTitle: {
-        ...typography.label, color: colors.textPrimary, textAlign: 'center',
-    },
-    emptyDateHint: {
-        ...typography.caption, color: colors.textSecondary,
-        textAlign: 'center', lineHeight: 18,
-    },
-
     // ── Slot card ─────────────────────────────────────────────────────────────
     slotCard: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -754,15 +718,6 @@ const s = StyleSheet.create({
         color: colors.textSecondary,
         marginBottom: spacing.base,
     },
-    emptyBookings: {
-        backgroundColor: colors.surface,
-        borderRadius: radius.card,
-        borderWidth: 1, borderColor: colors.border,
-        paddingVertical: spacing.lg, paddingHorizontal: spacing.base,
-        alignItems: 'center',
-    },
-    emptyBookingsTxt: { ...typography.body, color: colors.textSecondary },
-
     bookingCard: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         backgroundColor: colors.surface,

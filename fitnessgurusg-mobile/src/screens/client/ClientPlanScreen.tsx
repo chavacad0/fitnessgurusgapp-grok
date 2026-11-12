@@ -28,6 +28,7 @@ import {
     getPlans,
 } from '../../services/apiClient';
 import { colors, spacing, radius, typography, shadows } from '../../theme/theme';
+import StatusBadge from '../../components/StatusBadge';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -153,7 +154,9 @@ function ActivePlanCard({ plan }: { plan: ActivePlan }) {
     return (
         <View style={ap.card}>
             <Text style={ap.planName}>{plan.plan_name}</Text>
-            <Text style={ap.statusBadge}>Active Plan</Text>
+            <View style={ap.badgeRow}>
+                <StatusBadge variant="activePlan" />
+            </View>
 
             {/* Session progress */}
             <View style={ap.progressSection}>
@@ -202,7 +205,7 @@ const ap = StyleSheet.create({
         ...shadows.cardElevated,
     },
     planName:    { ...typography.h2, color: colors.textPrimary, marginBottom: spacing.xs },
-    statusBadge: { ...typography.micro, color: colors.accent, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: spacing.base },
+    badgeRow:    { marginBottom: spacing.base },
 
     progressSection: { marginBottom: spacing.base },
     progressHeader:  { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.xs },
@@ -472,6 +475,16 @@ export default function ClientPlanScreen() {
             {/* Active-plan clients use the inline upgrade panel in Block 1 */}
             {!activePlan && (planStatus === 'none' || planStatus === 'expired' || planStatus === 'cancelled') && (
                 <>
+                    {planStatus === 'expired' && (
+                        <View style={s.statusRow}>
+                            <StatusBadge variant="expiringSoon" label="Expired" />
+                        </View>
+                    )}
+                    {planStatus === 'cancelled' && (
+                        <View style={s.statusRow}>
+                            <StatusBadge variant="cancelled" />
+                        </View>
+                    )}
                     <Text style={s.sectionTitle}>
                         {planStatus === 'none' ? 'Select your programme' : 'Renew your plan'}
                     </Text>
@@ -574,6 +587,7 @@ const s = StyleSheet.create({
     },
     retryTxt: { ...typography.body, color: '#fff', fontWeight: '700' },
 
+    statusRow: { marginBottom: spacing.sm },
     screenTitle: {
         ...typography.h1,
         color: colors.textPrimary,
