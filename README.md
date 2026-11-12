@@ -1,5 +1,7 @@
 # Fitness Coaching App - File Structure
 
+Open findings: [docs/AUDIT.md](docs/AUDIT.md). Shipped and in-review changes: [CHANGELOG.md](CHANGELOG.md).
+
 ```
 /Users/admin/Fitnessprac/
 ├── docs/
