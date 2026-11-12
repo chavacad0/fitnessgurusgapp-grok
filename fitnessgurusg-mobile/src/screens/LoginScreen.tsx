@@ -148,12 +148,22 @@ export default function LoginScreen({ navigation }: Props) {
             const { idToken } = await GoogleSignin.getTokens();
             if (!idToken) throw new Error('No ID token received from Google.');
             const response = await googleLogin(idToken);
-            const user: AuthUser = {
-                id:    response.coach._id,
-                email: response.coach.email,
-                name:  response.coach.name,
-                role:  (response.coach.role ?? 'coach') as Role,
-            };
+            // Backend returns either a coach profile or the canonical client record.
+            // Clients are identified by clients.id (UUID) — never by a coach document ID.
+            const user: AuthUser = response.role === 'client'
+                ? {
+                    id:       response.client._id,
+                    email:    response.client.email,
+                    name:     response.client.name,
+                    role:     'client',
+                    clientId: response.client.id,
+                }
+                : {
+                    id:    response.coach._id,
+                    email: response.coach.email,
+                    name:  response.coach.name,
+                    role:  (response.coach.role ?? 'coach') as Role,
+                };
             await login(response.token, user);
         } catch (err: any) {
             if (err.code === statusCodes.SIGN_IN_CANCELLED) return;

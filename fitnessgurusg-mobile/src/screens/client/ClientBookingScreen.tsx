@@ -14,13 +14,16 @@
  * Rules:
  *  - Blocked / already-booked slots are filtered by the backend
  *  - Private blocked_reason is never sent to the client
+ *  - Clients not yet connected to a coach (has_coach === false) see a
+ *    Connect-to-Coach card (invitation code) instead of the calendar.
  */
 
 import React, { useCallback, useRef, useState } from 'react';
 import {
     View, Text, TouchableOpacity, StyleSheet,
     FlatList, ScrollView, ActivityIndicator,
-    Alert, Modal, RefreshControl,
+    Alert, Modal, RefreshControl, TextInput,
+    KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -30,6 +33,7 @@ import {
     getClientAvailableSlots,
     getClientBookings,
     clientBookSlot,
+    connectToCoach,
 } from '../../services/apiClient';
 import { CoachAvailabilitySlot, BookingSlot } from '../../types';
 
@@ -295,6 +299,129 @@ const bdg = StyleSheet.create({
     txt:  { fontSize: 11, fontWeight: '700', letterSpacing: 0.3 },
 });
 
+// ─── Connect-to-Coach card (shown when the client has no coach yet) ──────────
+
+function ConnectCoachCard({ onConnected }: { onConnected: () => void }) {
+    const [code,       setCode]       = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const [errorMsg,   setErrorMsg]   = useState<string | null>(null);
+    const submittingRef = useRef(false);   // synchronous double-tap guard
+
+    const trimmed  = code.trim();
+    const canSubmit = trimmed.length >= 4 && !submitting;
+
+    const handleConnect = async () => {
+        if (!canSubmit || submittingRef.current) return;
+        submittingRef.current = true;
+        setSubmitting(true);
+        setErrorMsg(null);
+        try {
+            const res = await connectToCoach(trimmed);
+            Alert.alert(
+                res.alreadyConnected ? 'Already connected' : 'Connected! 🎉',
+                res.message,
+                [{ text: 'View sessions', onPress: onConnected }],
+            );
+        } catch (err: any) {
+            setErrorMsg(err.message ?? 'Could not connect. Please try again.');
+        } finally {
+            submittingRef.current = false;
+            setSubmitting(false);
+        }
+    };
+
+    return (
+        <View style={cc.card}>
+            <View style={cc.iconWrap}>
+                <Ionicons name="people-outline" size={32} color={ACCENT} />
+            </View>
+            <Text style={cc.title}>Connect with your coach</Text>
+            <Text style={cc.body}>
+                Enter the invitation code from your coach to see available sessions and start booking.
+            </Text>
+
+            <TextInput
+                style={cc.input}
+                value={code}
+                onChangeText={t => { setCode(t.toUpperCase()); setErrorMsg(null); }}
+                placeholder="INVITE CODE"
+                placeholderTextColor={colors.textSecondary}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                maxLength={16}
+                returnKeyType="done"
+                onSubmitEditing={handleConnect}
+                editable={!submitting}
+                accessibilityLabel="Coach invitation code"
+            />
+
+            {errorMsg && <Text style={cc.error}>{errorMsg}</Text>}
+
+            <TouchableOpacity
+                style={[cc.btn, !canSubmit && cc.btnDisabled]}
+                onPress={handleConnect}
+                disabled={!canSubmit}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Connect to coach"
+            >
+                {submitting
+                    ? <ActivityIndicator color="#fff" />
+                    : <Text style={cc.btnTxt}>Connect to coach</Text>}
+            </TouchableOpacity>
+
+            <Text style={cc.hint}>Don't have a code? Ask your coach to share it from their profile.</Text>
+        </View>
+    );
+}
+
+const cc = StyleSheet.create({
+    card: {
+        backgroundColor: colors.surface,
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: spacing.xl,
+        alignItems: 'center',
+        gap: spacing.sm,
+        ...shadows.card,
+    },
+    iconWrap: {
+        width: 64, height: 64, borderRadius: 32,
+        backgroundColor: colors.accentSubtle,
+        alignItems: 'center', justifyContent: 'center',
+        marginBottom: spacing.xs,
+    },
+    title: { ...typography.h2, color: colors.textPrimary, textAlign: 'center' },
+    body:  { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.sm },
+    input: {
+        alignSelf: 'stretch',
+        borderWidth: 1.5,
+        borderColor: colors.border,
+        borderRadius: radius.md,
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.base,
+        fontSize: 20,
+        fontWeight: '700',
+        letterSpacing: 4,
+        textAlign: 'center',
+        color: colors.textPrimary,
+        backgroundColor: colors.background,
+    },
+    error: { ...typography.body, color: colors.errorText, textAlign: 'center' },
+    btn: {
+        alignSelf: 'stretch',
+        backgroundColor: ACCENT,
+        borderRadius: radius.md,
+        paddingVertical: spacing.base,
+        alignItems: 'center',
+        marginTop: spacing.xs,
+    },
+    btnDisabled: { opacity: 0.5 },
+    btnTxt: { fontSize: 16, fontWeight: '700', color: '#fff' },
+    hint:  { ...typography.micro, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xs },
+});
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ClientBookingScreen() {
@@ -308,6 +435,8 @@ export default function ClientBookingScreen() {
     const [error,        setError]        = useState<string | null>(null);
     const [selectedSlot, setSelectedSlot] = useState<CoachAvailabilitySlot | null>(null);
     const [booking,      setBooking]      = useState(false);
+    // null = unknown (still loading); false = client must connect to a coach first
+    const [hasCoach,     setHasCoach]     = useState<boolean | null>(null);
 
     // ── Fetch ───────────────────────────────────────────────────────────────────
     const loadData = useCallback(async (isRefresh = false) => {
@@ -319,6 +448,8 @@ export default function ClientBookingScreen() {
                 getClientAvailableSlots(),
                 getClientBookings(),
             ]);
+            // Backends that predate has_coach omit it → treat as connected.
+            setHasCoach(slotsRes.has_coach !== false);
             const safeSlots = (slotsRes.slots ?? []).filter(
                 (s: CoachAvailabilitySlot) => !s.is_booked && s.status !== 'blocked',
             );
@@ -393,6 +524,32 @@ export default function ClientBookingScreen() {
                         <Text style={s.retryTxt}>Try again</Text>
                     </TouchableOpacity>
                 </View>
+            </SafeAreaView>
+        );
+    }
+
+    // ── Not connected to a coach yet — onboarding, not an error ──────────────
+    if (hasCoach === false) {
+        return (
+            <SafeAreaView style={s.root} edges={['bottom']}>
+                <KeyboardAvoidingView
+                    style={s.root}
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                >
+                    <ScrollView
+                        contentContainerStyle={[s.content, { flexGrow: 1, justifyContent: 'center' }]}
+                        keyboardShouldPersistTaps="handled"
+                        refreshControl={
+                            <RefreshControl
+                                refreshing={refreshing}
+                                onRefresh={() => loadData(true)}
+                                tintColor={ACCENT}
+                            />
+                        }
+                    >
+                        <ConnectCoachCard onConnected={() => loadData()} />
+                    </ScrollView>
+                </KeyboardAvoidingView>
             </SafeAreaView>
         );
     }

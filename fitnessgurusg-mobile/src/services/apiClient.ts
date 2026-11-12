@@ -1163,6 +1163,9 @@ export async function sendWhatsAppMessage(
 export async function getClientAvailableSlots(): Promise<{
     success: boolean;
     slots: CoachAvailabilitySlot[];
+    /** false → client is not yet connected to a coach (show Connect-to-Coach UI) */
+    has_coach?: boolean;
+    message?: string;
 }> {
     const headers  = await getAuthHeaders();
     const response = await fetch(`${BASE_URL}/api/clients/me/availability`, { headers });
