@@ -105,6 +105,96 @@ const MALE_AREAS: AreaConfig[] = [
     },
 ];
 
+const RING: Record<MeasurementArea, { top: number; width: number }> = {
+    neck:  { top: 28, width: 40 },
+    chest: { top: 58, width: 72 },
+    waist: { top: 86, width: 52 },
+    hips:  { top: 114, width: 66 },
+};
+
+/**
+ * Symmetric silhouette drawn with views. No image and no extra library.
+ * Numbered rings match Neck, Bust, Waist, and Hips.
+ */
+function MeasurementFigure({
+    areas,
+    focusedArea,
+    onSelect,
+}: {
+    areas: AreaConfig[];
+    focusedArea: MeasurementArea | null;
+    onSelect: (key: MeasurementArea) => void;
+}) {
+    return (
+        <View style={fig.wrap}>
+            <View style={fig.head} />
+            <View style={fig.torso} />
+            <View style={[fig.arm, fig.armLeft]} />
+            <View style={[fig.arm, fig.armRight]} />
+            <View style={[fig.leg, fig.legLeft]} />
+            <View style={[fig.leg, fig.legRight]} />
+            {areas.map((area, index) => {
+                const ring = RING[area.key];
+                const active = focusedArea === area.key;
+                return (
+                    <TouchableOpacity
+                        key={area.key}
+                        style={[fig.ringHit, { top: ring.top }]}
+                        onPress={() => onSelect(area.key)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${area.label}, marker ${index + 1}`}
+                        accessibilityState={{ selected: active }}
+                    >
+                        <View style={[fig.ring, { width: ring.width }, active && fig.ringActive]} />
+                        <View style={[fig.badge, active && fig.badgeActive]}>
+                            <Text style={fig.badgeText}>{index + 1}</Text>
+                        </View>
+                    </TouchableOpacity>
+                );
+            })}
+        </View>
+    );
+}
+
+const fig = StyleSheet.create({
+    wrap: { width: 112, height: 200, alignItems: 'center' },
+    head: {
+        position: 'absolute', top: 2, width: 26, height: 26, borderRadius: 13,
+        backgroundColor: '#C5DDD6',
+    },
+    torso: {
+        position: 'absolute', top: 24, width: 54, height: 86, borderRadius: 27,
+        backgroundColor: '#C5DDD6',
+    },
+    arm: {
+        position: 'absolute', top: 40, width: 14, height: 64, borderRadius: 7,
+        backgroundColor: '#C5DDD6',
+    },
+    armLeft: { left: 10 },
+    armRight: { right: 10 },
+    leg: {
+        position: 'absolute', top: 104, width: 16, height: 78, borderRadius: 8,
+        backgroundColor: '#C5DDD6',
+    },
+    legLeft: { left: 34 },
+    legRight: { right: 34 },
+    ringHit: {
+        position: 'absolute', left: 0, right: 0, height: 22,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    ring: {
+        height: 8, borderRadius: 4,
+        borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.accent,
+    },
+    ringActive: { borderColor: colors.primary, backgroundColor: 'rgba(15,118,110,0.12)' },
+    badge: {
+        position: 'absolute', right: 0, width: 18, height: 18, borderRadius: 9,
+        backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
+    },
+    badgeActive: { backgroundColor: colors.primary },
+    badgeText: { color: colors.textOnPrimary, fontSize: 10, fontWeight: '700' },
+});
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function BodyMeasurementGuide({
@@ -211,91 +301,53 @@ export default function BodyMeasurementGuide({
             </View>
             <Text style={s.subtitle}>
                 {editing
-                    ? 'Tap a measurement area, then enter your value in cm.'
-                    : 'Tap a measurement to see where to measure.'}
+                    ? 'Tap a number, then enter the measurement in cm.'
+                    : 'Tap a number to see where to measure.'}
             </Text>
 
-            {/* Body silhouette + markers */}
-            <View style={s.guideContainer}>
-                {/* Abstract silhouette */}
-                <View style={s.silhouette}>
-                    <View style={s.head} />
-                    <View style={s.trunk}>
-                        {areas.map(area => {
-                            const isActive = focusedArea === area.key;
-                            return (
-                                <TouchableOpacity
-                                    key={area.key}
-                                    style={[s.markerRow, { top: `${area.position}%` }]}
-                                    onPress={() => setFocusedArea(
-                                        focusedArea === area.key ? null : area.key,
-                                    )}
-                                    activeOpacity={0.7}
-                                    accessibilityRole="button"
-                                    accessibilityLabel={`${area.label} measurement`}
-                                    accessibilityState={{ selected: isActive }}
-                                >
-                                    <View style={[s.markerLine, isActive && s.markerLineActive]} />
-                                    <View style={[s.markerPill, isActive && s.markerPillActive]}>
-                                        <Text style={[s.markerLabel, isActive && s.markerLabelActive]}>
-                                            {area.label}
-                                        </Text>
-                                    </View>
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </View>
-                    <View style={s.legs}>
-                        <View style={s.leg} />
-                        <View style={s.legGap} />
-                        <View style={s.leg} />
-                    </View>
-                </View>
-
-                {/* Measurement values / inputs */}
-                <View style={s.valuesColumn}>
-                    {areas.map(area => {
+            <View style={s.mgrid}>
+                <MeasurementFigure
+                    areas={areas}
+                    focusedArea={focusedArea}
+                    onSelect={key => setFocusedArea(focusedArea === key ? null : key)}
+                />
+                <View style={s.mTiles}>
+                    {areas.map((area, index) => {
                         const isActive = focusedArea === area.key;
                         const savedVal = values[area.apiField as keyof MeasurementValues];
                         const draftVal = drafts[area.apiField] ?? '';
-
                         return (
                             <TouchableOpacity
                                 key={area.key}
-                                style={[s.valueRow, isActive && s.valueRowActive]}
-                                onPress={() => setFocusedArea(
-                                    focusedArea === area.key ? null : area.key,
-                                )}
+                                style={[s.mTile, isActive && s.mTileActive]}
+                                onPress={() => setFocusedArea(focusedArea === area.key ? null : area.key)}
                                 activeOpacity={0.8}
                                 accessibilityRole="button"
+                                accessibilityLabel={`${area.label} measurement`}
+                                accessibilityState={{ selected: isActive }}
                             >
-                                <View style={[s.valueDot, isActive && s.valueDotActive]} />
-                                <Text style={[s.valueLabel, isActive && s.valueLabelActive]}>
-                                    {area.label}
-                                </Text>
-                                {editing ? (
-                                    <View style={s.inputGroup}>
-                                        <TextInput
-                                            style={[s.valueInput, isActive && s.valueInputActive]}
-                                            value={draftVal}
-                                            onChangeText={(v) => updateDraft(area.apiField, v)}
-                                            onFocus={() => setFocusedArea(area.key)}
-                                            placeholder="—"
-                                            placeholderTextColor={colors.textTertiary}
-                                            keyboardType="numeric"
-                                            maxLength={6}
-                                            accessibilityLabel={`${area.label} in cm`}
-                                        />
-                                        <Text style={s.unitText}>cm</Text>
+                                <View style={s.mLabelRow}>
+                                    <View style={s.mNum}>
+                                        <Text style={s.mNumText}>{index + 1}</Text>
                                     </View>
+                                    <Text style={s.mLabel}>{area.label}</Text>
+                                </View>
+                                {editing ? (
+                                    <TextInput
+                                        style={s.mInput}
+                                        value={draftVal}
+                                        onChangeText={(v) => updateDraft(area.apiField, v)}
+                                        onFocus={() => setFocusedArea(area.key)}
+                                        placeholder="cm"
+                                        placeholderTextColor={colors.textTertiary}
+                                        keyboardType="numeric"
+                                        maxLength={6}
+                                        accessibilityLabel={`${area.label} in cm`}
+                                    />
+                                ) : savedVal != null ? (
+                                    <Text style={s.mValue}>{savedVal} <Text style={s.mUnit}>cm</Text></Text>
                                 ) : (
-                                    <Text style={[
-                                        s.valueDisplay,
-                                        savedVal == null && s.valueUnset,
-                                        isActive && s.valueDisplayActive,
-                                    ]}>
-                                        {savedVal != null ? `${savedVal} cm` : 'Not set'}
-                                    </Text>
+                                    <Text style={s.mUnset}>Not set</Text>
                                 )}
                             </TouchableOpacity>
                         );
@@ -358,6 +410,35 @@ const MARKER_DEFAULT  = '#C5CDD5';
 const MARKER_ACTIVE   = colors.accent;
 
 const s = StyleSheet.create({
+    mgrid: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' },
+    mTiles: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+    mTile: {
+        width: '47%',
+        borderWidth: 1.5,
+        borderStyle: 'dashed',
+        borderColor: '#CDE7E1',
+        borderRadius: radius.md,
+        backgroundColor: '#FBFDFC',
+        padding: spacing.sm,
+        minHeight: 72,
+        justifyContent: 'center',
+    },
+    mTileActive: { borderColor: colors.accent, backgroundColor: colors.accentSubtle },
+    mLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+    mNum: {
+        width: 16, height: 16, borderRadius: 8,
+        backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
+    },
+    mNumText: { color: colors.textOnPrimary, fontSize: 9, fontWeight: '700' },
+    mLabel: { ...typography.caption, color: colors.textSecondary },
+    mValue: { ...typography.label, color: colors.accent },
+    mUnit: { fontSize: 11, fontWeight: '500', color: colors.textSecondary },
+    mUnset: { ...typography.caption, color: colors.textTertiary },
+    mInput: {
+        borderBottomWidth: 1, borderBottomColor: colors.accent,
+        paddingVertical: 2, fontSize: 14, color: colors.textPrimary,
+    },
+
     card: {
         backgroundColor: colors.surface,
         borderRadius:     radius.card,

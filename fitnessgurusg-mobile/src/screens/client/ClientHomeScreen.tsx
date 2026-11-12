@@ -34,6 +34,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth }                           from '../../context/AuthContext';
 import { submitCheckIn, uploadSingleCheckInPhoto, getTodayWorkout, submitWorkoutLog, updateCheckInPrefs, getWorkoutHistory } from '../../services/apiClient';
 import { BASE_URL }                          from '../../config/api';
@@ -744,6 +745,7 @@ export default function ClientHomeScreen() {
     console.log('🔥 NEW CLIENT HOME SCREEN LOADED — clean rebuild active');
 
     const { user } = useAuth();
+    const insets = useSafeAreaInsets();
 
     // clientId resolution:
     //   Email/password login → user.clientId
@@ -997,21 +999,39 @@ export default function ClientHomeScreen() {
 
     // ── Success state ──────────────────────────────────────────────────────────
     if (submitState === 'success') {
+        const exerciseCount = workoutAssignment?.exercises?.length ?? 0;
         return (
-            <View style={s.centered}>
-                <View style={s.successIcon}>
-                    <Ionicons name="checkmark-circle" size={40} color="#059669" />
-                </View>
-                <Text style={s.successHeading}>Check-in saved.</Text>
-                <Text style={s.successBody}>
-                    Well done, {user?.name?.split(' ')[0] ?? 'you'}.{'\n'}
-                    Your coach can see your check-in.
-                </Text>
-                <Text style={s.successCaption}>Come back tomorrow.</Text>
-                <TouchableOpacity style={s.resetBtn} onPress={resetForm} activeOpacity={0.75}>
-                    <Ionicons name="create-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
-                    <Text style={s.resetLabel}>Edit today's check-in</Text>
-                </TouchableOpacity>
+            <View style={s.flex}>
+                <ScrollView
+                    contentContainerStyle={[s.successScroll, { paddingTop: insets.top + spacing.lg }]}
+                    showsVerticalScrollIndicator={false}
+                >
+                    <View style={s.successCard}>
+                        <View style={s.successIcon}>
+                            <Ionicons name="checkmark" size={32} color={colors.textOnPrimary} />
+                        </View>
+                        <Text style={s.successHeading}>Check-in saved.</Text>
+                        <Text style={s.successBody}>
+                            Come back tomorrow. Your coach will review it shortly.
+                        </Text>
+                        <TouchableOpacity style={s.resetBtn} onPress={resetForm} activeOpacity={0.75}>
+                            <Text style={s.resetLabel}>Edit today's check-in</Text>
+                        </TouchableOpacity>
+                    </View>
+                    {workoutAssignment ? (
+                        <View style={s.successWorkout}>
+                            <View style={s.successWorkoutIcon}>
+                                <Ionicons name="barbell-outline" size={18} color={colors.accent} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={s.successWorkoutTitle}>{workoutAssignment.title}</Text>
+                                <Text style={s.successWorkoutSub}>
+                                    {exerciseCount} exercise{exerciseCount === 1 ? '' : 's'} · set by your coach
+                                </Text>
+                            </View>
+                        </View>
+                    ) : null}
+                </ScrollView>
             </View>
         );
     }
@@ -1030,6 +1050,24 @@ export default function ClientHomeScreen() {
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
             >
+                <View style={[s.hero, { paddingTop: insets.top + spacing.sm }]}>
+                    <Text style={s.eyebrow}>
+                        {new Date()
+                            .toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' })
+                            .toUpperCase()}
+                        {'  ·  CHECK-IN'}
+                    </Text>
+                    <Text style={s.greeting}>
+                        Good {getTimeOfDay()}, {user?.name?.split(' ')[0] ?? 'there'}
+                    </Text>
+                    <Text style={s.sub}>
+                        {missedStreak === 0
+                            ? "You're on track. Quick check-in below."
+                            : 'Quick check-in — how are you doing today?'}
+                    </Text>
+                </View>
+
+                <View style={s.sheet}>
                 {/* ── Check-in Reminder Preference Card / Paused Banner ─────── */}
                 {prefsLoaded && (() => {
                     // Paused state (streak >= 3 or stored as paused)
@@ -1058,22 +1096,28 @@ export default function ClientHomeScreen() {
                     if (reminderEnabled === undefined) {
                         return (
                             <View style={ci.prefCard}>
-                                <Text style={ci.prefQuestion}>Would you like daily check-in reminders?</Text>
-                                <Text style={ci.prefSub}>
-                                    We'll remind you to submit your progress so your coach can support you better.
-                                </Text>
-                                <Button
-                                    label="Yes, remind me daily"
-                                    onPress={() => handleReminderChoice(true)}
-                                    fullWidth
-                                    style={ci.prefBtnGap}
-                                />
-                                <Button
-                                    label="Not now"
-                                    variant="secondary"
-                                    onPress={() => handleReminderChoice(false)}
-                                    fullWidth
-                                />
+                                <View style={ci.prefTop}>
+                                    <View style={ci.prefIcon}>
+                                        <Ionicons name="notifications-outline" size={18} color={colors.accent} />
+                                    </View>
+                                    <View style={ci.prefText}>
+                                        <Text style={ci.prefQuestion}>Daily check-in reminders?</Text>
+                                        <Text style={ci.prefSub}>A gentle nudge so your coach can support you.</Text>
+                                    </View>
+                                </View>
+                                <View style={ci.prefBtnRow}>
+                                    <Button
+                                        label="Yes, remind me"
+                                        onPress={() => handleReminderChoice(true)}
+                                        style={ci.prefBtn}
+                                    />
+                                    <Button
+                                        label="Not now"
+                                        variant="secondary"
+                                        onPress={() => handleReminderChoice(false)}
+                                        style={ci.prefBtn}
+                                    />
+                                </View>
                             </View>
                         );
                     }
@@ -1095,29 +1139,25 @@ export default function ClientHomeScreen() {
                     return null;
                 })()}
 
-                {/* ── Header ────────────────────────────────────────────────── */}
-                <View style={s.header}>
-                    <Text style={s.eyebrow}>
-                        {new Date()
-                            .toLocaleDateString('en-SG', { weekday: 'long', day: 'numeric', month: 'long' })
-                            .toUpperCase()}
-                        {'  ·  DAILY CHECK-IN'}
-                    </Text>
-                    <Text style={s.greeting}>
-                        Good {getTimeOfDay()}, {user?.name?.split(' ')[0] ?? 'there'}
-                    </Text>
-                    <Text style={s.sub}>
-                        {missedStreak === 0
-                            ? "You're on track. Quick check-in below."
-                            : 'Quick check-in — how are you doing today?'}
-                    </Text>
-                </View>
-
-                {/* ── Wellbeing ─────────────────────────────────────────────── */}
-                <View style={s.sectionRow}>
-                    <View style={s.sectionAccent} />
-                    <Ionicons name="heart-outline" size={15} color={colors.textSecondary} />
-                    <Text style={s.sectionLabel}>Wellbeing</Text>
+                <Text style={s.sectionLabel}>Today so far</Text>
+                <View style={s.miniRow}>
+                    <View style={s.mini}>
+                        <Ionicons name="flash-outline" size={16} color={colors.accent} />
+                        <Text style={s.miniLabel}>Energy</Text>
+                        <Text style={s.miniValue}>{energy}<Text style={s.miniUnit}>/10</Text></Text>
+                    </View>
+                    <View style={s.mini}>
+                        <Ionicons name="restaurant-outline" size={16} color={colors.accent} />
+                        <Text style={s.miniLabel}>Appetite</Text>
+                        <Text style={s.miniValue}>{hunger}<Text style={s.miniUnit}>/10</Text></Text>
+                    </View>
+                    <View style={s.mini}>
+                        <Ionicons name="footsteps-outline" size={16} color={colors.accent} />
+                        <Text style={s.miniLabel}>Steps</Text>
+                        <Text style={steps.trim() ? s.miniValue : s.miniAdd}>
+                            {steps.trim() ? steps : '+ Add'}
+                        </Text>
+                    </View>
                 </View>
 
                 <RatingRow
@@ -1137,8 +1177,8 @@ export default function ClientHomeScreen() {
                     value={hunger}
                     onChange={setHunger}
                     accentColor={colors.badgeSuccessText}
-                    lowLabel="Low appetite"
-                    highLabel="Very hungry / craving"
+                    lowLabel="Not hungry"
+                    highLabel="Very hungry"
                 />
 
                 {/* ── Activity ──────────────────────────────────────────────── */}
@@ -1222,6 +1262,7 @@ export default function ClientHomeScreen() {
 
                 {/* Bottom spacer — makes room for sticky submit bar */}
                 <View style={{ height: 160 }} />
+                </View>
 
             </ScrollView>
 
@@ -1268,14 +1309,34 @@ export default function ClientHomeScreen() {
 
 const s = StyleSheet.create({
     flex:     { flex: 1, backgroundColor: colors.background },
-    scroll:   { flexGrow: 1, paddingHorizontal: spacing.base, paddingTop: spacing.xl, paddingBottom: spacing.section },
+    scroll:   { flexGrow: 1, paddingBottom: spacing.section },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background, paddingHorizontal: spacing.xl },
 
-    // ── Header ────────────────────────────────────────────────────────────────
-    header:   { marginBottom: spacing.xl },
-    eyebrow:  { fontSize: 10, fontWeight: '700', color: colors.textSecondary, letterSpacing: 1.0, marginBottom: spacing.sm },
-    greeting: { ...typography.h1, color: colors.textPrimary, marginBottom: spacing.xs },
-    sub:      { ...typography.body, color: colors.textSecondary },
+    hero: {
+        backgroundColor: colors.primary,
+        paddingHorizontal: spacing.lg,
+        paddingBottom: spacing.xxl + spacing.sm,
+    },
+    sheet: {
+        marginTop: -spacing.xl,
+        paddingHorizontal: spacing.base,
+    },
+    eyebrow:  { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.7)', letterSpacing: 0.7, marginBottom: spacing.sm },
+    greeting: { ...typography.h1, color: colors.textOnPrimary, marginBottom: spacing.xs },
+    sub:      { ...typography.body, color: 'rgba(255,255,255,0.78)' },
+
+    miniRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+    mini: {
+        flex: 1,
+        backgroundColor: colors.surface,
+        borderRadius: radius.card,
+        padding: spacing.md,
+        ...shadows.card,
+    },
+    miniLabel: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
+    miniValue: { ...typography.h3, color: colors.textPrimary, marginTop: 2 },
+    miniUnit: { fontSize: 11, fontWeight: '500', color: colors.textTertiary },
+    miniAdd: { ...typography.label, color: colors.accent, marginTop: 4 },
 
     // ── Section labels ────────────────────────────────────────────────────────
     // ── Section rows ──────────────────────────────────────────────────────────
@@ -1341,12 +1402,37 @@ const s = StyleSheet.create({
     submitCaption:  { ...typography.caption, color: colors.textSecondary, textAlign: 'center' as const, marginTop: spacing.sm },
 
     // ── Success ───────────────────────────────────────────────────────────────
-    successIcon:    { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.successBg, borderWidth: 2, borderColor: colors.successBorder, justifyContent: 'center', alignItems: 'center', marginBottom: spacing.xl },
+    successScroll: { paddingHorizontal: spacing.base, paddingBottom: spacing.section },
+    successCard: {
+        backgroundColor: colors.surface,
+        borderRadius: radius.card,
+        paddingVertical: spacing.xl,
+        paddingHorizontal: spacing.base,
+        alignItems: 'center',
+        marginBottom: spacing.md,
+        ...shadows.card,
+    },
+    successIcon:    { width: 64, height: 64, borderRadius: 32, backgroundColor: colors.accent, justifyContent: 'center', alignItems: 'center', marginBottom: spacing.md },
     successHeading: { ...typography.h2, color: colors.textPrimary, marginBottom: spacing.sm },
-    successBody:    { ...typography.body, color: colors.textSecondary, textAlign: 'center', lineHeight: 24, marginBottom: spacing.xs },
-    successCaption: { ...typography.caption, color: colors.textTertiary, textAlign: 'center', marginTop: spacing.xs },
-    resetBtn:       { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md, paddingHorizontal: spacing.xl, marginTop: spacing.xl, backgroundColor: colors.accentSubtle, borderRadius: radius.md },
+    successBody:    { ...typography.body, color: colors.textSecondary, textAlign: 'center', lineHeight: 22 },
+    resetBtn:       { marginTop: spacing.base, paddingVertical: spacing.sm, paddingHorizontal: spacing.base },
     resetLabel:     { ...typography.label, color: colors.accent },
+    successWorkout: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        backgroundColor: colors.surface,
+        borderRadius: radius.card,
+        padding: spacing.base,
+        ...shadows.card,
+    },
+    successWorkoutIcon: {
+        width: 36, height: 36, borderRadius: 10,
+        backgroundColor: colors.accentSubtle,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    successWorkoutTitle: { ...typography.label, color: colors.textPrimary },
+    successWorkoutSub: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
 });
 
 // ─── Check-in Preference / Pause Styles ──────────────────────────────────────
@@ -1362,9 +1448,13 @@ const ci = StyleSheet.create({
         marginBottom: spacing.base,
         ...shadows.card,
     },
-    prefQuestion: { ...typography.h3, color: colors.textPrimary, marginBottom: spacing.xs },
-    prefSub:      { ...typography.body, color: colors.textSecondary, lineHeight: 22, marginBottom: spacing.base },
-    prefBtnGap:   { marginBottom: spacing.sm },
+    prefTop:      { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.md },
+    prefIcon:     { width: 34, height: 34, borderRadius: 10, backgroundColor: colors.accentSubtle, alignItems: 'center', justifyContent: 'center' },
+    prefText:     { flex: 1 },
+    prefQuestion: { ...typography.label, color: colors.textPrimary },
+    prefSub:      { ...typography.caption, color: colors.textSecondary, lineHeight: 18, marginTop: 2 },
+    prefBtnRow:   { flexDirection: 'row', gap: spacing.sm },
+    prefBtn:      { flex: 1, alignSelf: 'stretch', minHeight: 40, paddingHorizontal: spacing.sm },
 
     // Paused banner
     pausedCard: {

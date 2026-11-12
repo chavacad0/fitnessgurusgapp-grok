@@ -75,7 +75,11 @@ export default function ClientAppTabs() {
                     key={tab.name}
                     name={tab.name}
                     component={tab.component}
-                    options={{ title: tab.label }}
+                    options={{
+                        title: tab.label,
+                        // Home and Profile draw their own navy header.
+                        headerShown: tab.name !== 'ClientHome' && tab.name !== 'ClientProfile',
+                    }}
                 />
             ))}
         </Tab.Navigator>

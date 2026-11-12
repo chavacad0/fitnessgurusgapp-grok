@@ -11,6 +11,8 @@ import {
     KeyboardAvoidingView,
     Platform,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, radius, typography, shadows } from '../../theme/theme';
 import { fontStyle, useKitFonts } from '../../theme/fonts';
@@ -60,6 +62,7 @@ const EXPERIENCE_OPTIONS: { label: string; value: string }[] = [
 export default function ClientProfileScreen() {
     const { user, logout, updateUser } = useAuth();
     const fonts = useKitFonts();
+    const insets = useSafeAreaInsets();
 
     // ── Profile state ─────────────────────────────────────────────────────────
     const [profile,  setProfile]  = useState<ClientBodyProfile | null>(null);
@@ -216,32 +219,33 @@ export default function ClientProfileScreen() {
                 contentContainerStyle={s.content}
                 keyboardShouldPersistTaps="handled"
             >
-                {/* ── Avatar + name ── */}
-                <View style={s.hero}>
-                    <Avatar
-                        name={user?.name ?? ''}
-                        size={80}
-                        style={s.avatarSlot}
-                    />
-                    <Text style={[s.name, fontStyle(fonts.heading, '700')]}>{user?.name ?? '—'}</Text>
-                    <Text style={[s.email, fontStyle(fonts.body, '400')]}>{user?.email ?? '—'}</Text>
-                    <StatusBadge status="neutral" label="Client account" />
+                <View style={[s.hero, { paddingTop: insets.top + spacing.md }]}>
+                    <View style={s.heroTop}>
+                        <Text style={s.heroTitle}>Profile</Text>
+                        {!nameEditing && (
+                            <TouchableOpacity
+                                onPress={startNameEdit}
+                                style={s.editGhost}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                accessibilityRole="button"
+                                accessibilityLabel="Edit display name"
+                            >
+                                <Ionicons name="create-outline" size={14} color={colors.textOnPrimary} />
+                                <Text style={s.editGhostText}>Edit</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                    <View style={s.identity}>
+                        <Avatar name={user?.name ?? ''} size={68} />
+                        <View style={s.identityText}>
+                            <Text style={[s.name, fontStyle(fonts.heading, '700')]}>{user?.name ?? '—'}</Text>
+                            <Text style={[s.email, fontStyle(fonts.body, '400')]}>{user?.email ?? '—'}</Text>
+                            <StatusBadge status="accent" label="Client account" />
+                        </View>
+                    </View>
                 </View>
 
-                {/* ── Account section ── */}
-                <View style={s.sectionHeader}>
-                    <Text style={s.sectionLabel}>Account</Text>
-                    {!nameEditing && (
-                        <TouchableOpacity
-                            onPress={startNameEdit}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            accessibilityRole="button"
-                            accessibilityLabel="Edit display name"
-                        >
-                            <Text style={s.editLink}>Edit name</Text>
-                        </TouchableOpacity>
-                    )}
-                </View>
+                <View style={s.sheet}>
 
                 {nameEditing ? (
                     <View style={s.editCard}>
@@ -444,13 +448,19 @@ export default function ClientProfileScreen() {
                         </View>
                     </View>
                 ) : (
-                    <View style={s.infoCard}>
-                        <InfoRow label="Height"     value={profile?.height_cm  != null ? `${profile.height_cm} cm`  : 'Not set'} />
-                        <InfoRow label="Weight"     value={profile?.weight_kg  != null ? `${profile.weight_kg} kg`  : 'Not set'} />
-                        <InfoRow label="Goal"       value={profile?.fitness_goal        ?? 'Not set'} />
-                        <InfoRow label="Injuries"   value={profile?.injuries_notes      ?? 'Not set'} />
-                        <InfoRow label="Experience" value={formatExperience(profile?.training_experience)} last />
-                    </View>
+                    <>
+                        <ProfileSummary profile={profile} />
+                        <View style={s.tileGrid}>
+                            <ProfileTile label="Height" value={profile?.height_cm != null ? `${profile.height_cm}` : null} unit="cm" />
+                            <ProfileTile label="Weight" value={profile?.weight_kg != null ? `${profile.weight_kg}` : null} unit="kg" />
+                            <ProfileTile label="Goal" value={profile?.fitness_goal || null} />
+                            <ProfileTile label="Experience" value={profile?.training_experience ? formatExperience(profile.training_experience) : null} />
+                        </View>
+                        <Text style={s.sectionLabel}>Health notes</Text>
+                        <View style={s.infoCard}>
+                            <InfoRow label="Injuries" value={profile?.injuries_notes ?? 'Not set'} last />
+                        </View>
+                    </>
                 )}
 
                 {/* ── Body Measurements section ── */}
@@ -466,6 +476,14 @@ export default function ClientProfileScreen() {
                         saving={measurementSaving}
                     />
                 )}
+
+                <View style={s.privacyCard}>
+                    <Ionicons name="lock-closed-outline" size={18} color={colors.accent} />
+                    <View style={{ flex: 1 }}>
+                        <Text style={s.privacyTitle}>Private to you and your coach</Text>
+                        <Text style={s.privacyBody}>Never shown on leaderboards or to other clients.</Text>
+                    </View>
+                </View>
 
                 {/* ── App section ── */}
                 <Text style={[s.sectionLabel, { marginTop: spacing.xl }]}>App</Text>
@@ -483,6 +501,7 @@ export default function ClientProfileScreen() {
                 >
                     <Text style={s.logoutText}>Sign out</Text>
                 </TouchableOpacity>
+                </View>
 
             </ScrollView>
         </KeyboardAvoidingView>
@@ -490,6 +509,46 @@ export default function ClientProfileScreen() {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+function filledCount(profile: ClientBodyProfile | null): number {
+    if (!profile) return 0;
+    return [
+        profile.height_cm != null,
+        profile.weight_kg != null,
+        Boolean(profile.fitness_goal),
+        Boolean(profile.training_experience),
+        Boolean(profile.injuries_notes),
+    ].filter(Boolean).length;
+}
+
+function ProfileSummary({ profile }: { profile: ClientBodyProfile | null }) {
+    const done = filledCount(profile);
+    return (
+        <View style={s.summaryCard}>
+            <View style={s.summaryRow}>
+                <Text style={s.summaryTitle}>Your profile</Text>
+                <Text style={s.summaryCount}>{done} of 5 done</Text>
+            </View>
+            <View style={s.summaryTrack}>
+                <View style={[s.summaryFill, { width: `${(done / 5) * 100}%` }]} />
+            </View>
+            <Text style={s.summaryHint}>Add your goal and measurements so your coach can tailor your plan.</Text>
+        </View>
+    );
+}
+
+function ProfileTile({ label, value, unit }: { label: string; value: string | null; unit?: string }) {
+    return (
+        <View style={s.tile}>
+            <Text style={s.tileLabel}>{label}</Text>
+            {value ? (
+                <Text style={s.tileValue}>{value}{unit ? <Text style={s.tileUnit}> {unit}</Text> : null}</Text>
+            ) : (
+                <Text style={s.tileUnset}>Not set</Text>
+            )}
+        </View>
+    );
+}
 
 function InfoRow({ label, value, last }: { label: string; value: string; last?: boolean }) {
     const unset = value === 'Not set';
@@ -517,29 +576,83 @@ const GREEN_SUBTLE = '#F0FDF4';
 const s = StyleSheet.create({
     list: { flex: 1, backgroundColor: colors.background },
     content: {
-        paddingTop: spacing.xl,
-        paddingHorizontal: spacing.base,
         paddingBottom: spacing.section,
     },
-
-    // Hero
     hero: {
-        alignItems: 'center',
-        marginBottom: spacing.xxl,
+        backgroundColor: colors.primary,
+        paddingHorizontal: spacing.lg,
+        paddingBottom: spacing.xxl,
     },
-    avatarSlot: {
+    heroTop: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
         marginBottom: spacing.base,
+    },
+    heroTitle: { ...typography.h3, color: colors.textOnPrimary },
+    editGhost: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: 'rgba(255,255,255,0.12)',
+        borderRadius: radius.pill,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 7,
+    },
+    editGhostText: { ...typography.label, color: colors.textOnPrimary },
+    identity: { flexDirection: 'row', alignItems: 'center', gap: spacing.base },
+    identityText: { flex: 1 },
+    sheet: {
+        marginTop: -spacing.lg,
+        paddingHorizontal: spacing.base,
     },
     name: {
         ...typography.h2,
-        color: colors.textPrimary,
-        marginBottom: spacing.xs,
+        color: colors.textOnPrimary,
+        marginBottom: 2,
     },
     email: {
         ...typography.body,
-        color: colors.textSecondary,
+        color: 'rgba(255,255,255,0.75)',
         marginBottom: spacing.sm,
     },
+    summaryCard: {
+        backgroundColor: colors.surface,
+        borderRadius: radius.card,
+        padding: spacing.base,
+        marginBottom: spacing.md,
+        ...shadows.card,
+    },
+    summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.sm },
+    summaryTitle: { ...typography.label, color: colors.textPrimary },
+    summaryCount: { ...typography.label, color: colors.accent },
+    summaryTrack: { height: 8, borderRadius: 8, backgroundColor: colors.surfaceMuted, overflow: 'hidden' },
+    summaryFill: { height: '100%', backgroundColor: colors.accent, borderRadius: 8 },
+    summaryHint: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
+    tileGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
+    tile: {
+        width: '48%',
+        backgroundColor: colors.surface,
+        borderRadius: radius.card,
+        padding: spacing.base,
+        ...shadows.card,
+    },
+    tileLabel: { ...typography.caption, color: colors.textSecondary },
+    tileValue: { ...typography.h3, color: colors.textPrimary, marginTop: 4 },
+    tileUnit: { fontSize: 12, fontWeight: '500', color: colors.textSecondary },
+    tileUnset: { ...typography.label, color: colors.textTertiary, marginTop: 6 },
+    privacyCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        backgroundColor: colors.surface,
+        borderRadius: radius.card,
+        padding: spacing.base,
+        marginTop: spacing.md,
+        ...shadows.card,
+    },
+    privacyTitle: { ...typography.label, color: colors.textPrimary },
+    privacyBody: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     // Section header row (label + Edit link side by side)
     sectionHeader: {
         flexDirection: 'row',

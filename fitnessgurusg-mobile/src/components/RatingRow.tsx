@@ -4,8 +4,9 @@
  * Used for Energy and Appetite check-in ratings.
  *
  * Critical style rules (DO NOT CHANGE):
- *   • height: 40 on buttons (explicit — never aspectRatio:1 in a flex row)
- *   • minWidth: 0 on buttons (allows flex shrink when 10 buttons share a row)
+ *   • height: 46 on buttons (explicit — never aspectRatio:1 in a flex row)
+ *   • Two rows of five, so each number is wide enough to tap
+ *   • The saved value is still 1–10
  *   • No overflow:'hidden' on card container (would clip touch events)
  *
  * Usage:
@@ -72,34 +73,35 @@ export default function RatingRow({
                 </View>
             </View>
 
-            {/* Button row — explicit height ensures real touch targets */}
-            <View style={s.row}>
-                {RATINGS.map(n => {
-                    const selected = n === value;
-                    return (
-                        <TouchableOpacity
-                            key={n}
-                            onPress={() => {
-                                console.log(`[CheckIn] ${label} selected:`, n);
-                                onChange(n);
-                            }}
-                            activeOpacity={0.65}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Rate ${n} out of 10`}
-                            accessibilityState={{ selected }}
-                            hitSlop={{ top: 6, bottom: 6, left: 2, right: 2 }}
-                            style={[
-                                s.btn,
-                                selected && { backgroundColor: accentColor, borderColor: accentColor },
-                            ]}
-                        >
-                            <Text style={[s.btnText, selected && s.btnTextSelected]}>
-                                {n}
-                            </Text>
-                        </TouchableOpacity>
-                    );
-                })}
-            </View>
+            {/* Two rows of five. The value saved is still 1–10. */}
+            {[RATINGS.slice(0, 5), RATINGS.slice(5)].map(row => (
+                <View key={row[0]} style={s.row}>
+                    {row.map(n => {
+                        const selected = n === value;
+                        return (
+                            <TouchableOpacity
+                                key={n}
+                                onPress={() => {
+                                    console.log(`[CheckIn] ${label} selected:`, n);
+                                    onChange(n);
+                                }}
+                                activeOpacity={0.65}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Rate ${n} out of 10`}
+                                accessibilityState={{ selected }}
+                                style={[
+                                    s.btn,
+                                    selected && { backgroundColor: accentColor, borderColor: accentColor },
+                                ]}
+                            >
+                                <Text style={[s.btnText, selected && s.btnTextSelected]}>
+                                    {n}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            ))}
 
             {/* Axis labels */}
             <View style={s.axis}>
@@ -139,12 +141,11 @@ const s = StyleSheet.create({
     },
     badgeValue: { fontSize: 20, fontWeight: '800', lineHeight: 24 },
     badgeMax:   { fontSize: 11, color: colors.textSecondary, fontWeight: '600', marginLeft: 1 },
-    row:        { flexDirection: 'row', gap: 4 },
+    row:        { flexDirection: 'row', gap: 7, marginBottom: 7 },
     btn: {
         flex:            1,
-        height:          40,   // ← explicit height, NEVER aspectRatio:1 in a flex row
-        minWidth:        0,    // ← allows proper shrink when 10 buttons share a row
-        borderRadius:    radius.md,
+        height:          46,
+        borderRadius:    12,
         borderWidth:     1.5,
         borderColor:     colors.border,
         backgroundColor: colors.background,
