@@ -33,11 +33,16 @@ type Props = {
     navigation: NativeStackNavigationProp<AuthStackParams, 'Login'>;
 };
 
+const COACH_LOG_IN_ERROR =
+    "We couldn't sign you in as a coach. If you're a client, switch to Client above.";
+const CLIENT_LOG_IN_ERROR =
+    "We couldn't sign you in as a client. If you're a coach, switch to Coach above.";
+
 /**
  * LoginScreen — role-aware sign-in for coaches and clients.
  *
  * Role selection rationale:
- *   A segmented "Sign in as" toggle at the top of the form makes the user's
+ *   A segmented "Log in as" toggle at the top of the form makes the user's
  *   intent explicit BEFORE they enter credentials. This prevents the ambiguity
  *   of the previous dual-fallback approach where a client email could
  *   accidentally match a coach record (or vice versa).
@@ -125,14 +130,13 @@ export default function LoginScreen({ navigation }: Props) {
             }
         } catch (err: any) {
             const msg = err.message ?? '';
-            if (msg.toLowerCase().includes('invalid') || msg.toLowerCase().includes('credentials')) {
-                setError(
-                    selectedRole === 'coach'
-                        ? 'Incorrect email or password for a coach account.'
-                        : 'Incorrect email or password. New client? Use "Join a programme" instead.'
-                );
+            const lower = msg.toLowerCase();
+            if (lower.includes('sign you in as')) {
+                setError(msg);
+            } else if (lower.includes('invalid') || lower.includes('credentials')) {
+                setError(selectedRole === 'coach' ? COACH_LOG_IN_ERROR : CLIENT_LOG_IN_ERROR);
             } else {
-                setError(msg || 'Sign in failed. Please try again.');
+                setError(msg || 'Log in failed. Please try again.');
             }
         } finally {
             setLoading(false);
@@ -148,7 +152,12 @@ export default function LoginScreen({ navigation }: Props) {
             await GoogleSignin.signIn();
             const { idToken } = await GoogleSignin.getTokens();
             if (!idToken) throw new Error('No ID token received from Google.');
-            const response = await googleLogin(idToken);
+            const response = await googleLogin(idToken, selectedRole);
+            // The toggle is sent to the server. If a response still comes back
+            // for the other role, do not save a session.
+            if (response.role !== selectedRole) {
+                throw new Error(selectedRole === 'coach' ? COACH_LOG_IN_ERROR : CLIENT_LOG_IN_ERROR);
+            }
             // Backend returns either a coach profile or the canonical client record.
             // Clients are identified by clients.id (UUID) — never by a coach document ID.
             let user: AuthUser;
@@ -221,7 +230,7 @@ export default function LoginScreen({ navigation }: Props) {
                     <View style={s.pageHeader}>
                         <Text style={s.title}>Welcome back</Text>
                         <Text style={s.subtitle}>
-                            Select your role, then enter your credentials.
+                            Already have an account? Choose Client or Coach, then log in.
                         </Text>
                     </View>
 
@@ -233,7 +242,7 @@ export default function LoginScreen({ navigation }: Props) {
                         and DB collection — no fallback guesswork.
                     */}
                     <View style={s.roleToggleContainer}>
-                        <Text style={s.roleToggleLabel}>SIGN IN AS</Text>
+                        <Text style={s.roleToggleLabel}>LOG IN AS</Text>
                         <View style={s.roleToggle}>
                             <TouchableOpacity
                                 style={[
@@ -243,7 +252,7 @@ export default function LoginScreen({ navigation }: Props) {
                                 onPress={() => handleRoleSelect('client')}
                                 disabled={isAnyLoading}
                                 accessibilityRole="button"
-                                accessibilityLabel="Sign in as Client"
+                                accessibilityLabel="Log in as Client"
                                 accessibilityState={{ selected: selectedRole === 'client' }}
                             >
                                 <Text style={[
@@ -262,7 +271,7 @@ export default function LoginScreen({ navigation }: Props) {
                                 onPress={() => handleRoleSelect('coach')}
                                 disabled={isAnyLoading}
                                 accessibilityRole="button"
-                                accessibilityLabel="Sign in as Coach"
+                                accessibilityLabel="Log in as Coach"
                                 accessibilityState={{ selected: selectedRole === 'coach' }}
                             >
                                 <Text style={[
@@ -342,12 +351,12 @@ export default function LoginScreen({ navigation }: Props) {
                         disabled={isAnyLoading}
                         activeOpacity={0.88}
                         accessibilityRole="button"
-                        accessibilityLabel={`Sign in as ${selectedRole}`}
+                        accessibilityLabel={selectedRole === 'coach' ? 'Log in as Coach' : 'Log in as Client'}
                     >
                         {loading
                             ? <ActivityIndicator color={colors.buttonPrimaryText} />
                             : <Text style={s.btnPrimaryText}>
-                                {selectedRole === 'coach' ? 'Sign in as Coach' : 'Sign in as Client'}
+                                {selectedRole === 'coach' ? 'Log in as Coach' : 'Log in as Client'}
                               </Text>
                         }
                     </TouchableOpacity>
@@ -380,17 +389,28 @@ export default function LoginScreen({ navigation }: Props) {
                         )}
                     </TouchableOpacity>
 
-                    {/* ── New client link ───────────────────────────────────── */}
-                    <View style={s.switchRow}>
-                        <Text style={s.switchText}>New client? </Text>
-                        <TouchableOpacity
-                            onPress={() => navigation.navigate('Register')}
-                            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-                            accessibilityRole="button"
-                            accessibilityLabel="Join a coaching programme"
-                        >
-                            <Text style={s.switchLink}>Join a programme →</Text>
-                        </TouchableOpacity>
+                    {/* ── Sign up ───────────────────────────────────────────── */}
+                    {/* Sign up always opens client registration. There is no way
+                        to create a coach account from the app. */}
+                    <View style={s.signupBlock}>
+                        {selectedRole === 'coach' ? (
+                            <Text style={s.coachNote}>
+                                Coach accounts are set up by FitnessGuruSG.
+                            </Text>
+                        ) : null}
+                        <View style={s.switchRow}>
+                            <Text style={s.switchText}>
+                                {selectedRole === 'coach' ? 'New client? ' : 'New here? '}
+                            </Text>
+                            <TouchableOpacity
+                                onPress={() => navigation.navigate('Register')}
+                                hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                                accessibilityRole="button"
+                                accessibilityLabel="Sign up as a new client"
+                            >
+                                <Text style={s.switchLink}>Sign up</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
 
                     <Text style={s.footer}>FitnessGuruSG · Singapore</Text>
@@ -625,11 +645,21 @@ const s = StyleSheet.create({
     },
 
     // ── Switch + notes ─────────────────────────────────────────────────────────
+    signupBlock: {
+        marginTop: spacing.xxl,
+        alignItems: 'center',
+        gap: spacing.sm,
+    },
+    coachNote: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        textAlign: 'center',
+        lineHeight: 18,
+    },
     switchRow: {
         flexDirection: 'row',
         justifyContent: 'center',
         alignItems: 'center',
-        marginTop: spacing.xxl,
     },
     switchText: { ...typography.body, color: colors.textSecondary },
     switchLink: {

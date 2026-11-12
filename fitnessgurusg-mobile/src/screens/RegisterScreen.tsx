@@ -157,9 +157,9 @@ export default function RegisterScreen({ navigation }: Props) {
                 >
                     {/* ── Page header ─────────────────────────────────────── */}
                     <View style={s.pageHeader}>
-                        <Text style={s.title}>Create your account</Text>
+                        <Text style={s.title}>Sign up</Text>
                         <Text style={s.subtitle}>
-                            Create an account to start your fitness programme. A coach invite code is optional.
+                            Create a client account. A coach invite code is optional. Coach accounts are set up by FitnessGuruSG.
                         </Text>
                     </View>
 
@@ -265,11 +265,11 @@ export default function RegisterScreen({ navigation }: Props) {
                         disabled={loading}
                         activeOpacity={0.88}
                         accessibilityRole="button"
-                        accessibilityLabel="Create account"
+                        accessibilityLabel="Sign up"
                     >
                         {loading
                             ? <ActivityIndicator color={colors.buttonPrimaryText} />
-                            : <Text style={s.btnPrimaryText}>Join programme</Text>
+                            : <Text style={s.btnPrimaryText}>Sign up</Text>
                         }
                     </TouchableOpacity>
 
@@ -279,14 +279,14 @@ export default function RegisterScreen({ navigation }: Props) {
 
                     {/* ── Sign in link ─────────────────────────────────────── */}
                     <View style={s.switchRow}>
-                        <Text style={s.switchText}>Already a member? </Text>
+                        <Text style={s.switchText}>Already have an account? </Text>
                         <TouchableOpacity
                             onPress={() => navigation.navigate('Login')}
                             hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
                             accessibilityRole="button"
-                            accessibilityLabel="Sign in"
+                            accessibilityLabel="Log in"
                         >
-                            <Text style={s.switchLink}>Sign in</Text>
+                            <Text style={s.switchLink}>Log in</Text>
                         </TouchableOpacity>
                     </View>
 

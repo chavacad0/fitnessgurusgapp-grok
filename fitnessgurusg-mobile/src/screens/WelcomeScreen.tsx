@@ -10,8 +10,8 @@ import { colors, spacing, radius, typography, componentSize, shadows } from '../
  * WelcomeScreen — the app's entry point.
  *
  * Design rationale:
- *   ONE primary action (Sign in) — the most common path for any returning user.
- *   ONE secondary link (Join a programme) — the client self-registration path.
+ *   ONE primary action (Log in) — people who already have an account.
+ *   ONE secondary link (Sign up) — new clients only. Coach accounts are not created here.
  *   Google is surfaced on LoginScreen, not here — keeps this screen clean.
  *
  * UX principle (Singapore-style):
@@ -19,7 +19,7 @@ import { colors, spacing, radius, typography, componentSize, shadows } from '../
  *   identity first, then give them a single clear next step.
  *
  * Coach access is deliberately not surfaced here — coaches use the same
- * "Sign in" button. Role is determined by the backend, not the user.
+ * "Log in" button. Role is chosen on the next screen and checked by the server.
  */
 
 type AuthStackParams = {
@@ -64,33 +64,32 @@ export default function WelcomeScreen({ navigation }: Props) {
             {/* ── Actions ────────────────────────────────────────────────────── */}
             <View style={s.actions}>
 
-                {/* PRIMARY: Sign in — the most common action */}
+                {/* PRIMARY: Log in — people who already have an account */}
                 <TouchableOpacity
                     style={s.btnPrimary}
                     onPress={() => navigation.navigate('Login')}
                     activeOpacity={0.88}
                     accessibilityRole="button"
-                    accessibilityLabel="Sign in to your account"
-                    accessibilityHint="Opens the sign in screen"
+                    accessibilityLabel="Log in to your account"
+                    accessibilityHint="Opens the log in screen"
                 >
-                    <Text style={s.btnPrimaryText}>Sign in</Text>
+                    <Text style={s.btnPrimaryText}>Log in</Text>
                 </TouchableOpacity>
 
-                {/* SECONDARY: Client registration — needs invite code */}
+                {/* SECONDARY: Sign up — new clients only */}
                 <TouchableOpacity
                     style={s.btnSecondary}
                     onPress={() => navigation.navigate('Register')}
                     activeOpacity={0.88}
                     accessibilityRole="button"
-                    accessibilityLabel="Join a coaching programme"
-                    accessibilityHint="Opens the registration screen — you will need an invite code from your coach"
+                    accessibilityLabel="Sign up as a new client"
+                    accessibilityHint="Opens client sign up. Coach accounts are set up by FitnessGuruSG."
                 >
-                    <Text style={s.btnSecondaryText}>Join a programme</Text>
+                    <Text style={s.btnSecondaryText}>Sign up</Text>
                 </TouchableOpacity>
 
-                {/* Context line — sets expectation clearly */}
                 <Text style={s.hint}>
-                    New clients need an invite code from their coach.
+                    Sign up is for new clients. Coach accounts are set up by FitnessGuruSG.
                 </Text>
             </View>
 
