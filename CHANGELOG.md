@@ -15,7 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ### Changed
 
-- Welcome is a full-screen navy screen with a white FG tile, a white Log in button, and an outlined Sign up button. The feature chips are gone. Log in puts the back button on its own row, uses line icons for Client and Coach, and shows the coach note under that switch. The Google button uses the coloured G. Signing in works the same way.
+- [Pull request #14](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/14) — Welcome is a full-screen navy screen with a white FG tile, a white Log in button, and an outlined Sign up button. The feature chips are gone. Log in puts the back button on its own row, uses line icons for Client and Coach, and shows the coach note under that switch. The Google button uses the coloured G. Signing in works the same way.
 
 ### In review
 
