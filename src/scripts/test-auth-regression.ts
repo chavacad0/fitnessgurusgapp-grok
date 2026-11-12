@@ -20,6 +20,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { MongoClient, ObjectId } from 'mongodb';
 import type { AddressInfo } from 'net';
+import { assertSafeTestDatabase } from '../test/assertSafeTestDatabase';
 
 // ── 1. Environment isolation (must happen BEFORE any app module is imported) ──
 // .env is optional so this can run in CI without a secrets file. When .env
@@ -45,6 +46,7 @@ if (!TEST_DB.toLowerCase().includes('test') || TEST_DB === REAL_DB) {
 process.env.MONGO_URI        = MONGO_URI;
 process.env.DB_NAME          = TEST_DB;
 process.env.NODE_ENV         = 'test';                 // disables authLimiter
+assertSafeTestDatabase(TEST_DB);
 process.env.JWT_SECRET       = 'regression-test-secret-not-real';
 process.env.GOOGLE_CLIENT_ID = 'test-client.apps.googleusercontent.com';
 const AUD = process.env.GOOGLE_CLIENT_ID;
@@ -94,6 +96,7 @@ async function main() {
 
     const db = await getDb();
     if (db.databaseName !== TEST_DB) throw new Error(`Connected to ${db.databaseName}, expected ${TEST_DB}`);
+    assertSafeTestDatabase(db.databaseName);
     await db.dropDatabase();           // isolated test DB only — start clean
     const db2 = await getDb();
     // re-run index creation against the fresh test DB (same code path as server start)
@@ -447,7 +450,10 @@ async function main() {
     // ── Teardown ────────────────────────────────────────────────────────────
     server.close();
     const testDbName = db.databaseName;
-    if (testDbName === TEST_DB && testDbName !== REAL_DB) await db.dropDatabase();
+    if (testDbName === TEST_DB && testDbName !== REAL_DB) {
+        assertSafeTestDatabase(testDbName);
+        await db.dropDatabase();
+    }
     await closeDb();
 
     section('Real database untouched (read-only document counts)');

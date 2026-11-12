@@ -133,6 +133,16 @@ All code examples are in `docs/setup/SUPABASE_SETUP.md`:
 - Red flag detection
 - Client invite generation
 
+## API tests (safe)
+
+`npm test` does not use `MONGO_URI` or `DB_NAME`. Set `TEST_MONGODB_URI` to a local MongoDB server. The database name defaults to `fitnessgurusg_test` and must end with `_test`. The test deletes only the rows it created. If the name does not end with `_test`, or `NODE_ENV` is not `test`, it stops before deleting anything.
+
+```bash
+TEST_MONGODB_URI=mongodb://127.0.0.1:27017 npm test
+```
+
+`npm run test:auth` is a separate suite. It also refuses to drop a database whose name does not end with `_test`.
+
 ## Questions?
 
 Refer to:

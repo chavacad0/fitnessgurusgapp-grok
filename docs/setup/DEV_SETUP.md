@@ -102,6 +102,8 @@ Inside the running simulator you can also:
 | `GOOGLE_CLIENT_ID` | Verifies Google ID tokens server-side | ✅ Set |
 | `PORT` | Server port (default: 5001) | Optional |
 | `CORS_ORIGIN` | Allowed origins (default: localhost:8081) | Optional |
+| `TEST_MONGODB_URI` | Local MongoDB for `npm test` only. Not used by the running server. | Set before `npm test` |
+| `TEST_DB_NAME` | Optional. Must end with `_test`. Default is `fitnessgurusg_test`. | Optional |
 
 ### Mobile: `fitnessgurusg-mobile/.env`
 
