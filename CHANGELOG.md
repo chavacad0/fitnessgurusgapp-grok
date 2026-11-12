@@ -16,6 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 ### In review
 
 - [Pull request #7](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/7) — Docs only. Inside the Motivation & Rewards future plan, `PROJECT_STATUS.md` adds Holiday mode (pause): the client sets dates, the streak freezes, reminders pause, and the coach sees a calm holiday badge. Whether paid plan dates extend is an open decision. Nothing in the app is built. The audit log is unchanged.
+- [Pull request #9](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/9) — Client Home and Profile follow the approved mockups, using only information the app already stores. Home has a navy greeting, a shorter reminder card, and larger 1–10 buttons in two rows. Profile shows a navy header and a body-measurement figure with the saved neck, bust, waist, and hips numbers, or “Not set” when a number is missing. Streaks, badges, holiday mode, and profile tabs are not shown. Login, payments, photos, and coach screens are unchanged.
 
 ## [2026-11-12]
 
