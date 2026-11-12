@@ -400,6 +400,27 @@ Safety that a design plan must include before launch: report a post, block a use
 
 Privacy: progress and body photos are sensitive health-related data. A design plan needs to say who can see them, how long they are kept, and how a client can remove them.
 
+**Motivation & Rewards (gamification) — proposal only. Not started. Waiting for a design plan and owner approval before any building.**
+
+This is an idea for later, not work that is underway. Do not start it until the owner approves a written design.
+
+The goal is to reward healthy habits, especially showing up consistently. It is not a way for clients to compare bodies or results with each other.
+
+Phase 1, if approved:
+
+- Daily check-in streaks, with rest days and a streak freeze, so missing one day is not a punishment.
+- Badges or medals for milestones: first check-in, 10 sessions attended, a 30-day streak, and the first body measurement logged.
+- A weekly consistency ring that counts check-ins, workouts, and sessions.
+- A small celebration on the phone after a client submits a check-in.
+
+Coach value: a broken streak is a signal to nudge that client, not a score to show other clients.
+
+Phase 2, later and optional: leaderboards. They must be strictly opt-in, and they may only rank effort (check-ins completed, sessions attended). They must never use weight, body measurements, or other health data. The server has to enforce that privacy. The phone must not be trusted to hide health data by itself.
+
+Open questions for the design plan: the full badge list, whether a coach can award a badge, and how often the app should send a notification.
+
+Status: not started. Needs a design plan and owner approval.
+
 ---
 
 ## Archive
