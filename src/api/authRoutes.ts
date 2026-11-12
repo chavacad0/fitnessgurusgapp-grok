@@ -26,6 +26,25 @@ const router = Router();
 const BCRYPT_SALT_ROUNDS = 12;
 const JWT_EXPIRY = '30d';  // Extended from 7d — no refresh-token flow yet. Review when adding refresh.
 
+// One message per toggle. Unknown email, wrong password, and "wrong role"
+// all return this exact body so the response cannot be used to probe accounts.
+const COACH_SIGN_IN_ERROR =
+    "We couldn't sign you in as a coach. If you're a client, switch to Client above.";
+const CLIENT_SIGN_IN_ERROR =
+    "We couldn't sign you in as a client. If you're a coach, switch to Coach above.";
+
+// Same cost as real password hashes (12) so a miss takes about as long as a real check.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('sign-in-timing-pad', BCRYPT_SALT_ROUNDS);
+
+function rejectSignIn(res: Response, error: string): void {
+    res.status(401).json({ success: false, error });
+}
+
+/** 'coach' | 'client' from the Login toggle. Anything else is ignored (never grants a role). */
+function readSignInAs(value: unknown): 'coach' | 'client' | undefined {
+    return value === 'coach' || value === 'client' ? value : undefined;
+}
+
 function log(route: string, message: string) {
     const timestamp = new Date().toISOString();
     console.log(`[${timestamp}] [${route}] ${message}`);
@@ -160,38 +179,22 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
     }
 
     try {
-        // Find coach by email
+        // A real coach has a coaches document whose role is not 'client'
+        // (legacy Google clients live in this collection with role 'client').
         const coach = await findCoachByEmail(email);
+        const coachRole = coach ? ((coach as any).role ?? 'coach') : null;
+        const isRealCoach = !!coach && coachRole !== 'client' && !!coach.password_hash;
 
-        if (!coach) {
-            // Use generic message — do not reveal whether email exists
-            log('POST /auth/login', `⚠️ Login failed: coach not found for ${email}`);
-            res.status(401).json({
-                success: false,
-                error: 'Invalid credentials'
-            });
-            return;
-        }
+        // Always run bcrypt. A missing account uses a dummy hash so it is not
+        // obviously faster than a wrong password.
+        const passwordMatch = await bcrypt.compare(
+            password,
+            isRealCoach ? coach!.password_hash! : DUMMY_PASSWORD_HASH,
+        );
 
-        // Google-only coaches have no password hash. Treat that the same as a wrong password.
-        if (!coach.password_hash) {
-            log('POST /auth/login', `⚠️ Login failed: no password set for ${email}`);
-            res.status(401).json({
-                success: false,
-                error: 'Invalid credentials'
-            });
-            return;
-        }
-
-        // Verify password
-        const passwordMatch = await bcrypt.compare(password, coach.password_hash);
-
-        if (!passwordMatch) {
-            log('POST /auth/login', `⚠️ Login failed: wrong password for ${email}`);
-            res.status(401).json({
-                success: false,
-                error: 'Invalid credentials'
-            });
+        if (!coach || !isRealCoach || !passwordMatch) {
+            log('POST /auth/login', 'Coach sign-in rejected');
+            rejectSignIn(res, COACH_SIGN_IN_ERROR);
             return;
         }
 
@@ -361,7 +364,11 @@ async function resolveGoogleClient(args: {
 router.post('/google', async (req: Request, res: Response) => {
     log('POST /auth/google', 'Google login attempt received');
 
-    const { idToken } = req.body as { idToken?: string };
+    // signInAs is the Login screen toggle. It can only REJECT a mismatch.
+    // It is never copied into the JWT. Omitted → previous automatic behaviour,
+    // so older app builds keep working.
+    const { idToken, signInAs: rawSignInAs } = req.body as { idToken?: string; signInAs?: unknown };
+    const signInAs = readSignInAs(rawSignInAs);
 
     if (!idToken) {
         res.status(400).json({
@@ -437,7 +444,24 @@ router.post('/google', async (req: Request, res: Response) => {
         }
 
         const coachRole = coachDoc ? (coachDoc.role ?? 'coach') : null; // no role field → legacy coach
-        if (coachDoc && coachRole !== 'client') {
+        const isRealCoach = !!(coachDoc && coachRole !== 'client');
+
+        // Client toggle + a real coach: do not issue a client token, do not
+        // create a clients row, and do not link Google onto the coach.
+        if (signInAs === 'client' && isRealCoach) {
+            log('POST /auth/google', `Client toggle rejected for coach ${masked}`);
+            rejectSignIn(res, CLIENT_SIGN_IN_ERROR);
+            return;
+        }
+
+        // Coach toggle + not a coach: do not create a coach or a client.
+        if (signInAs === 'coach' && !isRealCoach) {
+            log('POST /auth/google', `Coach toggle rejected for ${masked}`);
+            rejectSignIn(res, COACH_SIGN_IN_ERROR);
+            return;
+        }
+
+        if (isRealCoach) {
             // ── Coach path (behaviour unchanged) ──────────────────────────────
             if (matchedBy === 'email') {
                 if (coachDoc.googleId && coachDoc.googleId !== googleId) {
@@ -728,19 +752,10 @@ router.get('/invite-code', authMiddleware, async (req: AuthenticatedRequest, res
  * POST /api/auth/client-login
  * Authenticate a client account.
  *
- * Supports TWO authentication modes:
- *
- *  Mode A — Self-registered clients (new flow):
- *   Body: { email, password }
- *   The client has a password_hash in the DB (set during self-registration).
- *   bcrypt.compare(password, password_hash) must succeed.
- *
- *  Mode B — Coach-provisioned clients (old MVP, backward compat):
- *   Body: { email } (no password field)
- *   The client has NO password_hash (was created by coach with no set password).
- *   Email-only authentication. Login succeeds if email is found in clients collection.
- *
- * Both modes issue a JWT with role: 'client'.
+ * Body: { email, password }
+ * A real coach email is rejected with the same message as an unknown email
+ * or a wrong password. This route never creates a client record.
+ * Passwordless client accounts still get a specific setup message.
  * Rate-limited.
  */
 router.post('/client-login', authLimiter, async (req: Request, res: Response) => {
@@ -748,8 +763,8 @@ router.post('/client-login', authLimiter, async (req: Request, res: Response) =>
 
     const { email, password } = req.body as { email?: string; password?: string };
 
-    if (!email) {
-        res.status(400).json({ success: false, error: 'email is required' });
+    if (!email || !password) {
+        res.status(400).json({ success: false, error: 'email and password are required' });
         return;
     }
 
@@ -762,26 +777,35 @@ router.post('/client-login', authLimiter, async (req: Request, res: Response) =>
 
     try {
         const client = await findClientByEmail(normalizedEmail);
+        const coachAccount = await findCoachByEmail(normalizedEmail);
+        const coachRole = coachAccount ? ((coachAccount as any).role ?? 'coach') : null;
+        const isRealCoach = !!coachAccount && coachRole !== 'client';
 
-        if (!client) {
-            log('POST /auth/client-login', `⚠️ Client not found: ${normalizedEmail}`);
-            res.status(401).json({
-                success: false,
-                error:   'Invalid email or password.',
-            });
+        // A coach email must not receive a client session, and we never create
+        // a clients row here. Same message as an unknown email or a bad password.
+        if (isRealCoach) {
+            await bcrypt.compare(
+                password,
+                client?.password_hash || DUMMY_PASSWORD_HASH,
+            );
+            log('POST /auth/client-login', 'Client sign-in rejected');
+            rejectSignIn(res, CLIENT_SIGN_IN_ERROR);
             return;
         }
 
-        // ── Password verification ─────────────────────────────────────────────────
-        //
-        // SECURITY (2026-05-23): Mode B (email-only login for coach-provisioned clients
-        // with no password_hash) has been DISABLED. It allowed anyone who knew a client's
-        // email to log in without a password — a real account-takeover risk.
-        //
-        // All clients must now have a password_hash. Accounts created before this change
-        // that have no password_hash will receive a clear re-registration message.
+        if (!client) {
+            await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+            log('POST /auth/client-login', 'Client sign-in rejected');
+            rejectSignIn(res, CLIENT_SIGN_IN_ERROR);
+            return;
+        }
+
+        // SECURITY (2026-05-23): email-only login is disabled. Accounts with no
+        // password still get a specific setup message so those people know what
+        // to do. Unknown emails never reach this branch.
         if (!client.password_hash) {
-            log('POST /auth/client-login', `⛔ Passwordless account blocked: ${normalizedEmail}`);
+            await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+            log('POST /auth/client-login', 'Passwordless client account blocked');
             res.status(401).json({
                 success: false,
                 error:   'This account requires password setup. Please re-register or contact your coach.',
@@ -789,15 +813,10 @@ router.post('/client-login', authLimiter, async (req: Request, res: Response) =>
             return;
         }
 
-        // Normal password login — bcrypt comparison
-        if (!password) {
-            res.status(400).json({ success: false, error: 'password is required' });
-            return;
-        }
         const valid = await bcrypt.compare(password, client.password_hash);
         if (!valid) {
-            log('POST /auth/client-login', `⚠️ Invalid password for: ${normalizedEmail}`);
-            res.status(401).json({ success: false, error: 'Invalid email or password.' });
+            log('POST /auth/client-login', 'Client sign-in rejected');
+            rejectSignIn(res, CLIENT_SIGN_IN_ERROR);
             return;
         }
 

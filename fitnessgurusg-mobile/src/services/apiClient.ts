@@ -176,7 +176,12 @@ export async function loginCoach(email: string, password: string): Promise<Login
     console.log('[LOGIN] response status:', response.status);
 
     if (response.status === 401) {
-        throw new Error('Invalid email or password. Please try again.');
+        let errorMsg = "We couldn't sign you in as a coach. If you're a client, switch to Client above.";
+        try {
+            const body = await response.json();
+            if (typeof body.error === 'string' && body.error) errorMsg = body.error;
+        } catch { /* ignore parse error */ }
+        throw new Error(errorMsg);
     }
 
     if (!response.ok) {
@@ -558,18 +563,24 @@ export async function loginUser(
 /**
  * POST /api/auth/google — exchange a Google ID token for a FitnessGuruSG JWT.
  *
+ * `signInAs` is the Login toggle. The server uses it only to reject a mismatch.
+ * It does not grant a role.
+ *
  * Response is discriminated by `role`:
  *   role 'coach'  → { coach }   (JWT sub = coaches._id)
  *   role 'client' → { client }  (JWT sub = clients.id UUID; client.has_coach may be false)
  */
-export async function googleLogin(idToken: string): Promise<GoogleLoginResponse> {
+export async function googleLogin(
+    idToken: string,
+    signInAs: 'coach' | 'client',
+): Promise<GoogleLoginResponse> {
     const url = `${BASE_URL}/api/auth/google`;
     console.log('[GOOGLE LOGIN] request URL:', url);
 
     const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
+        body: JSON.stringify({ idToken, signInAs }),
     });
 
     console.log('[GOOGLE LOGIN] response status:', response.status);
@@ -578,9 +589,12 @@ export async function googleLogin(idToken: string): Promise<GoogleLoginResponse>
         let errorMsg = 'Google sign-in failed. Please try again.';
         try {
             const body = await response.json();
-            // Surface actionable server messages (e.g. unverified Google email)
-            if (typeof body.error === 'string' && body.error.toLowerCase().includes('verif')) {
-                errorMsg = body.error;
+            const serverError = typeof body.error === 'string' ? body.error : '';
+            const lower = serverError.toLowerCase();
+            // Role mismatch and unverified-email messages are safe to show.
+            // Other 401s stay generic so a bad token is not a special case in the UI.
+            if (lower.includes('sign you in as') || lower.includes('verif')) {
+                errorMsg = serverError;
             }
         } catch { /* ignore parse error */ }
         throw new Error(errorMsg);

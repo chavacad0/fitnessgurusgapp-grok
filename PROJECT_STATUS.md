@@ -1,6 +1,6 @@
 # FitnessGuruSG — Project Status
 
-> **Last updated:** 2026-09-10 21:00 SGT
+> **Last updated:** 2026-11-12
 > **Previous history:** Archived in `docs/archive/PROJECT_STATUS_HISTORY_2026-09-10.md`
 
 ---
@@ -374,6 +374,31 @@ Use MongoDB to finish local development and testing.
 If Supabase is still the preferred long-term production platform, migrate after testing passes and before private beta or public launch.
 
 Do not migrate while the app is still changing quickly.
+
+---
+
+## 14. Future plan option (not started)
+
+**Client Community Feed — proposal only. Not started. Waiting for a design plan and owner approval before any building.**
+
+This is an idea for later, not work that is underway. Do not start it until the owner approves a written design.
+
+The idea: a scrollable feed on the client dashboard. A client could post progress and fitness-related text and photos. Each post would have its own visibility:
+
+- **Only me**
+- **My coach** (the default)
+- **Everyone in the app**
+
+The server would enforce that choice on every request. The phone must not be trusted to hide a post by itself.
+
+Do not build this until these are finished first:
+
+- Progress photos under `/uploads` are private and require a logged-in user. They are not public files.
+- The security lockdown is done for photos, WhatsApp, and coach-only routes.
+
+Safety that a design plan must include before launch: report a post, block a user, coach or admin moderation, and delete your own post.
+
+Privacy: progress and body photos are sensitive health-related data. A design plan needs to say who can see them, how long they are kept, and how a client can remove them.
 
 ---
 

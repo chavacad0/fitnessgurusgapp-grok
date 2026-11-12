@@ -350,6 +350,100 @@ async function main() {
     r = await call('GET', `/api/clients/${newId}/session-status`, undefined, regStyleTok);
     check('old register-style token cannot read another client\'s session status → 403', r.status === 403, r);
 
+    section('Wrong role on the Log in screen');
+    const COACH_MSG = "We couldn't sign you in as a coach. If you're a client, switch to Client above.";
+    const CLIENT_MSG = "We couldn't sign you in as a client. If you're a coach, switch to Coach above.";
+    const failureShape = (res: { status: number; body: any }) =>
+        JSON.stringify({ status: res.status, success: res.body?.success, error: res.body?.error, token: res.body?.token ?? null });
+
+    const coachesAtRole = await db.collection('coaches').countDocuments({});
+    const clientsAtRole = await db.collection('clients').countDocuments({});
+
+    r = await call('POST', '/api/auth/login', { email: 'pw@test.local', password: 'ClientPass123' });
+    const clientOnCoach = failureShape(r);
+    check('client email + coach password → 401 generic coach message, no token',
+        r.status === 401 && r.body?.success === false && r.body?.error === COACH_MSG && !r.body?.token, r);
+
+    r = await call('POST', '/api/auth/login', { email: 'nobody-role@test.local', password: 'Whatever123' });
+    check('unknown email on coach path is an identical response', failureShape(r) === clientOnCoach, r);
+
+    r = await call('POST', '/api/auth/login', { email: 'coach.a@test.local', password: 'WrongPassword1' });
+    check('wrong coach password is an identical response', failureShape(r) === clientOnCoach, r);
+
+    r = await call('POST', '/api/auth/login', { email: 'coach.a@test.local', password: 'CoachPass123' });
+    check('real coach password login still succeeds', r.status === 200 && decode(r.body?.token)?.role === 'coach' && !!r.body?.token);
+
+    r = await call('POST', '/api/auth/google', {
+        idToken: gToken({ sub: 'g-pw', email: 'pw@test.local' }),
+        signInAs: 'coach',
+    });
+    check('client Google + coach toggle → same generic coach message', failureShape(r) === clientOnCoach, r);
+    check('that attempt did not change the client google link',
+        (await db.collection('clients').findOne({ id: pwClientId }))?.google_id === 'g-pw');
+
+    r = await call('POST', '/api/auth/google', {
+        idToken: gToken({ sub: 'g-fresh-coach-try', email: 'fresh.coach.try@test.local' }),
+        signInAs: 'coach',
+    });
+    check('unknown Google + coach toggle → same message and no account created',
+        failureShape(r) === clientOnCoach
+        && (await db.collection('clients').countDocuments({ email: 'fresh.coach.try@test.local' })) === 0
+        && (await db.collection('coaches').countDocuments({ email: 'fresh.coach.try@test.local' })) === 0, r);
+
+    r = await call('POST', '/api/auth/google', {
+        idToken: gToken({ sub: 'g-coach-b', email: 'coach.b@test.local' }),
+        signInAs: 'coach',
+    });
+    check('real coach Google + coach toggle still succeeds',
+        r.status === 200 && r.body?.role === 'coach' && decode(r.body?.token)?.sub === coachB.toString(), r.body);
+
+    r = await call('POST', '/api/auth/client-login', { email: 'coach.a@test.local', password: 'CoachPass123' });
+    const coachOnClient = failureShape(r);
+    check('coach email + client password → 401 generic client message, no token',
+        r.status === 401 && r.body?.error === CLIENT_MSG && !r.body?.token, r);
+    check('no client record created for the coach email',
+        (await db.collection('clients').countDocuments({ email: 'coach.a@test.local' })) === 0);
+
+    r = await call('POST', '/api/auth/client-login', { email: 'nobody-client@test.local', password: 'Whatever123' });
+    check('unknown email on client path is an identical response', failureShape(r) === coachOnClient, r);
+
+    r = await call('POST', '/api/auth/client-login', { email: 'pw@test.local', password: 'WrongPassword1' });
+    check('wrong client password is an identical response', failureShape(r) === coachOnClient, r);
+
+    r = await call('POST', '/api/auth/client-login', { email: 'pw@test.local', password: 'ClientPass123' });
+    check('real client password login still succeeds', r.status === 200 && decode(r.body?.token)?.sub === pwClientId);
+
+    const coachBBefore = await db.collection('coaches').findOne({ _id: coachB });
+    r = await call('POST', '/api/auth/google', {
+        idToken: gToken({ sub: 'g-coach-b', email: 'coach.b@test.local' }),
+        signInAs: 'client',
+    });
+    check('coach Google + client toggle → same generic client message', failureShape(r) === coachOnClient, r);
+    check('coach Google + client toggle did not create a client or edit the coach',
+        (await db.collection('clients').countDocuments({ email: 'coach.b@test.local' })) === 0
+        && JSON.stringify(await db.collection('coaches').findOne({ _id: coachB })) === JSON.stringify(coachBBefore));
+
+    r = await call('POST', '/api/auth/google', {
+        idToken: gToken({ sub: 'g-new', email: 'new.user@test.local' }),
+        signInAs: 'client',
+    });
+    check('real client Google + client toggle still succeeds', r.status === 200 && r.body?.role === 'client' && r.body?.client?.id === newId, r.body);
+
+    // Even if a clients row shares a coach email, the client toggle must not issue a client session.
+    await db.collection('clients').insertOne({
+        id: '22222222-2222-4222-8222-222222222222',
+        name: 'Should Not Log In',
+        email: 'coach.a@test.local',
+        password_hash: await bcrypt.hash('CoachPass123', 4),
+        plan_status: 'none',
+    });
+    r = await call('POST', '/api/auth/client-login', { email: 'coach.a@test.local', password: 'CoachPass123' });
+    check('coach email wins over a duplicate client row → still the generic client message', failureShape(r) === coachOnClient, r);
+
+    check('rejected attempts did not create coaches', (await db.collection('coaches').countDocuments({})) === coachesAtRole);
+    // +1 is the deliberate duplicate row inserted above, not a side effect of sign-in.
+    check('rejected attempts did not create extra clients', (await db.collection('clients').countDocuments({})) === clientsAtRole + 1);
+
     // ── Teardown ────────────────────────────────────────────────────────────
     server.close();
     const testDbName = db.databaseName;
