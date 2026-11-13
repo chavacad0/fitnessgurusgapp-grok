@@ -13,6 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ## [Unreleased]
 
+### Fixed
+
+- Security: progress photos are private. Opening a photo needs a login. A client can see their own photos, and their coach can see that client's photos. Anyone else is turned away. The phone removes location data from a photo before it is uploaded. A check-in now keeps the photos that were uploaded with it. Photos already in the uploads folder stay on disk until the one-time move in the README is run (dry run first, after a backup). The old `/uploads/...` link no longer opens a photo.
+
 ## [2026-11-13]
 
 ### Changed

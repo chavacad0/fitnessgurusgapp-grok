@@ -1,117 +1,151 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/authMiddleware';
+import { requireRole } from '../middleware/requireRole';
+import { findClientById } from '../repositories/mongoClientAuthRepo';
+import { createPhoto } from '../repositories/mongoPhotoRepo';
+import { stripImageMetadata } from '../services/photoBytes';
+import { storePrivatePhoto } from '../services/photoFiles';
 
 /**
- * Upload Routes
+ * Upload routes
  *
- * POST /api/upload/checkin-photo  — upload ONE photo, returns relative URL
- * POST /api/upload/photos         — batch upload (up to 3), returns relative URL array
+ * POST /api/upload/checkin-photo  — one photo, client only
+ * POST /api/upload/photos         — up to 3 photos, client only
  *
- * Returns RELATIVE paths (/uploads/filename.jpg) so the mobile app
- * composes the full URL as: `${BASE_URL}${url}`.
- * This avoids hardcoding the server host in backend responses.
- *
- * Storage: local disk (MVP). To move to S3/GCS, swap the multer storage engine —
- * all route logic stays the same.
+ * The file is checked by its real bytes (JPG, PNG or HEIC only). The original
+ * name is dropped. EXIF and GPS are removed before the file is stored.
+ * The response is a private link, /api/photos/<id>, not a public /uploads path.
+ * A coach cannot upload into a client's record.
  */
 
 const router = Router();
+const MAX_BYTES = 5 * 1024 * 1024;
 
-// ── Ensure uploads directory exists ──────────────────────────────────────────
-
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
-if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-    console.log('[Upload] Created uploads directory:', UPLOADS_DIR);
-}
-
-// ── Multer config ─────────────────────────────────────────────────────────────
-
-const storage = multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
-    filename:    (_req, file, cb) => {
-        const ext  = path.extname(file.originalname).toLowerCase() || '.jpg';
-        const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
-        cb(null, name);
-    },
+const uploadSingle = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: MAX_BYTES, files: 1 },
+});
+const uploadBatch = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: MAX_BYTES, files: 3 },
 });
 
-function imageOnly(_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) {
-    if (!file.mimetype.startsWith('image/')) {
-        cb(new Error('Only image files are allowed.'));
-        return;
-    }
-    cb(null, true);
-}
-
-const uploadSingle = multer({ storage, fileFilter: imageOnly, limits: { fileSize: 5 * 1024 * 1024 } });
-const uploadBatch  = multer({ storage, fileFilter: imageOnly, limits: { fileSize: 5 * 1024 * 1024, files: 3 } });
-
-// ── Shared multer error handler ───────────────────────────────────────────────
-
-function handleMulterError(err: any, res: Response): boolean {
+function handleMulterError(err: unknown, res: Response): boolean {
     if (err instanceof multer.MulterError) {
-        if (err.code === 'LIMIT_FILE_SIZE')  { res.status(400).json({ success: false, error: 'Photo must be under 5 MB.' }); return true; }
-        if (err.code === 'LIMIT_FILE_COUNT') { res.status(400).json({ success: false, error: 'Maximum 3 photos per check-in.' }); return true; }
-        res.status(400).json({ success: false, error: err.message }); return true;
+        if (err.code === 'LIMIT_FILE_SIZE') {
+            res.status(400).json({ success: false, error: 'Photo must be under 5 MB.' });
+            return true;
+        }
+        if (err.code === 'LIMIT_FILE_COUNT') {
+            res.status(400).json({ success: false, error: 'Maximum 3 photos per check-in.' });
+            return true;
+        }
+        res.status(400).json({ success: false, error: 'Photo could not be uploaded.' });
+        return true;
     }
-    if (err) { res.status(400).json({ success: false, error: err.message }); return true; }
+    if (err) {
+        res.status(400).json({ success: false, error: 'Photo could not be uploaded.' });
+        return true;
+    }
     return false;
 }
 
-// ── POST /api/upload/checkin-photo ────────────────────────────────────────────
-//    Upload-on-select: called immediately when user picks a photo.
-//    Field name: "photo" (single file)
-//    Returns:    { success: true, url: "/uploads/filename.jpg" }
+function clientIdFrom(req: AuthenticatedRequest): string {
+    return req.coach?.clientId || req.coach?.sub || '';
+}
 
+async function saveOne(clientId: string, bytes: Buffer): Promise<{ id: string; url: string } | null> {
+    const stored = await storePrivatePhoto(bytes);
+    if (!stored) return null;
+    const client = await findClientById(clientId);
+    const coachId = typeof client?.coach_id === 'string' && client.coach_id ? client.coach_id : null;
+    const id = stored.storageName.split('.')[0];
+    await createPhoto({
+        id,
+        client_id: clientId,
+        coach_id: coachId,
+        created_at: new Date(),
+        type: stored.mime,
+        size: stored.size,
+        storage_name: stored.storageName,
+    });
+    return { id, url: `/api/photos/${id}` };
+}
+
+// POST /api/upload/checkin-photo
+// Field name: "photo"
 router.post(
     '/checkin-photo',
     authMiddleware,
-    (req: Request, res: Response, next: any) => {
-        uploadSingle.single('photo')(req, res, (err: any) => {
+    requireRole('client'),
+    (req, res, next) => {
+        uploadSingle.single('photo')(req, res, (err: unknown) => {
             if (handleMulterError(err, res)) return;
             next();
         });
     },
-    (req: AuthenticatedRequest, res: Response) => {
+    async (req: AuthenticatedRequest, res: Response) => {
         const file = req.file;
-        if (!file) {
+        if (!file || !file.buffer || file.buffer.length === 0) {
             res.status(400).json({ success: false, error: 'No photo received.' });
             return;
         }
-        const url = `/uploads/${file.filename}`;
-        console.log(`[Upload] Photo saved by ${req.coach?.email}: ${url}`);
-        res.status(201).json({ success: true, url });
-    }
+        const saved = await saveOne(clientIdFrom(req), file.buffer);
+        if (!saved) {
+            res.status(400).json({ success: false, error: 'Photo must be a JPG, PNG, or HEIC image.' });
+            return;
+        }
+        console.log('[Upload] 1 photo stored');
+        res.status(201).json({ success: true, id: saved.id, url: saved.url });
+    },
 );
 
-// ── POST /api/upload/photos ───────────────────────────────────────────────────
-//    Batch upload (kept for compatibility).
-//    Field name: "photos" (repeat for multiple files)
-//    Returns:    { success: true, urls: string[] }
-
+// POST /api/upload/photos
+// Field name: "photos"
 router.post(
     '/photos',
     authMiddleware,
-    (req: Request, res: Response, next: any) => {
-        uploadBatch.array('photos', 3)(req, res, (err: any) => {
+    requireRole('client'),
+    (req, res, next) => {
+        uploadBatch.array('photos', 3)(req, res, (err: unknown) => {
             if (handleMulterError(err, res)) return;
             next();
         });
     },
-    (req: AuthenticatedRequest, res: Response) => {
-        const files = req.files as Express.Multer.File[];
-        if (!files || files.length === 0) {
+    async (req: AuthenticatedRequest, res: Response) => {
+        const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+        if (files.length === 0) {
             res.status(400).json({ success: false, error: 'No photos received.' });
             return;
         }
-        const urls = files.map(f => `/uploads/${f.filename}`);
-        console.log(`[Upload] ${files.length} photo(s) saved by ${req.coach?.email}:`, urls);
-        res.status(201).json({ success: true, urls });
-    }
+        for (const file of files) {
+            if (!file.buffer || file.buffer.length === 0 || !stripImageMetadata(file.buffer)) {
+                res.status(400).json({ success: false, error: 'Photo must be a JPG, PNG, or HEIC image.' });
+                return;
+            }
+        }
+        const clientId = clientIdFrom(req);
+        const saved: Array<{ id: string; url: string }> = [];
+        for (const file of files) {
+            if (!file.buffer || file.buffer.length === 0) {
+                res.status(400).json({ success: false, error: 'Photo must be a JPG, PNG, or HEIC image.' });
+                return;
+            }
+            const one = await saveOne(clientId, file.buffer);
+            if (!one) {
+                res.status(400).json({ success: false, error: 'Photo must be a JPG, PNG, or HEIC image.' });
+                return;
+            }
+            saved.push(one);
+        }
+        console.log(`[Upload] ${saved.length} photo(s) stored`);
+        res.status(201).json({
+            success: true,
+            photos: saved,
+            urls: saved.map(item => item.url),
+        });
+    },
 );
 
 export default router;

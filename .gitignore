@@ -5,6 +5,9 @@ local-db/database.db
 .env
 .env.local
 
+# Progress photos. Private health data — never commit this folder.
+uploads/
+
 # Dependencies
 node_modules/
 

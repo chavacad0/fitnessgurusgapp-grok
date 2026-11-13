@@ -160,6 +160,11 @@ export interface CheckIn {
     nutrition?: NutritionData;
 
     notes?: string;
+    /**
+     * Private photo links for this check-in. Each value is `/api/photos/<id>`.
+     * The file itself is not public.
+     */
+    photos?: string[];
     botMessageSent?: string;
     clientResponse?: string;
 

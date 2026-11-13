@@ -7,6 +7,8 @@
     "test": "NODE_ENV=test tsx src/test-mongo.ts",
     "test:auth": "tsx src/scripts/test-auth-regression.ts",
     "test:reliability": "NODE_ENV=test tsx src/test/reliabilityRegression.ts",
+    "test:photos": "NODE_ENV=test tsx src/test/photoAccessRegression.ts",
+    "migrate:photos": "tsx src/scripts/migrate-photos.ts",
     "typecheck": "tsc --noEmit -p tsconfig.server.json",
     "test:legacy-sql": "tsx src/legacy-sql/test-db.ts",
     "dev": "tsx watch src/server.ts",

@@ -1,5 +1,6 @@
 import { BASE_URL } from '../config/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { AUTH_TOKEN_KEY } from '../config/constants';
 import { authEvents } from './authEvents';
 import {
@@ -58,6 +59,16 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
         headers['Authorization'] = `Bearer ${token}`;
     }
     return headers;
+}
+
+/**
+ * Authorization header for <Image source={{ uri, headers }}>.
+ * Content-Type is left off so the phone does not send a JSON type with the picture.
+ */
+export async function getImageRequestHeaders(): Promise<{ Authorization: string } | undefined> {
+    const headers = await getAuthHeaders();
+    if (!headers.Authorization) return undefined;
+    return { Authorization: headers.Authorization };
 }
 
 /**
@@ -1119,26 +1130,36 @@ export async function getClientPayments(clientId: string): Promise<{ success: bo
 
 
 /**
+ * Re-encode the photo before upload. A new JPEG does not keep EXIF or GPS.
+ * The original file name is not sent.
+ */
+async function photoWithoutLocation(photoUri: string): Promise<string> {
+    const result = await ImageManipulator.manipulateAsync(
+        photoUri,
+        [],
+        { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG },
+    );
+    return result.uri;
+}
+
+/**
  * POST /api/upload/checkin-photo
  * Upload a SINGLE progress photo immediately after the user selects it.
  * Called once per photo (upload-on-select pattern).
  *
- * Returns a relative URL string: "/uploads/filename.jpg"
- * Compose the full URL for display as: `${BASE_URL}${url}`
+ * Returns a private link: "/api/photos/<id>"
+ * Show it with <Image source={{ uri: `${BASE_URL}${url}`, headers }}>.
  *
  * @param photoUri - local file URI from expo-image-picker
  */
 export async function uploadSingleCheckInPhoto(photoUri: string): Promise<string> {
+    const strippedUri = await photoWithoutLocation(photoUri);
     const headers = await getAuthHeaders();
     // Remove Content-Type — let fetch set the correct multipart boundary
     delete (headers as any)['Content-Type'];
 
-    const filename = photoUri.split('/').pop() ?? 'photo.jpg';
-    const ext      = filename.split('.').pop()?.toLowerCase() ?? 'jpeg';
-    const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
-
     const formData = new FormData();
-    formData.append('photo', { uri: photoUri, name: filename, type: mimeType } as any);
+    formData.append('photo', { uri: strippedUri, name: 'photo.jpg', type: 'image/jpeg' } as any);
 
     const response = await fetch(`${BASE_URL}/api/upload/checkin-photo`, {
         method:  'POST',
@@ -1146,7 +1167,7 @@ export async function uploadSingleCheckInPhoto(photoUri: string): Promise<string
         body:    formData,
     });
     const result = await handleResponse<{ success: boolean; url: string }>(response);
-    return result.url;  // e.g. "/uploads/1744728000000-abc123.jpg"
+    return result.url;
 }
 
 // ─── WhatsApp ─────────────────────────────────────────────────────────────────

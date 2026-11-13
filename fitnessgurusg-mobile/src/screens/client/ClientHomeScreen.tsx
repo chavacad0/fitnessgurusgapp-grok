@@ -36,7 +36,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth }                           from '../../context/AuthContext';
-import { submitCheckIn, uploadSingleCheckInPhoto, getTodayWorkout, submitWorkoutLog, updateCheckInPrefs, getWorkoutHistory } from '../../services/apiClient';
+import { submitCheckIn, uploadSingleCheckInPhoto, getTodayWorkout, submitWorkoutLog, updateCheckInPrefs, getWorkoutHistory, getImageRequestHeaders } from '../../services/apiClient';
 import { BASE_URL }                          from '../../config/api';
 import { NutritionData, WorkoutAssignment, WorkoutLog, ExerciseLog, WorkoutHistoryEntry } from '../../types';
 import { colors, spacing, radius, typography, componentSize, shadows } from '../../theme/theme';
@@ -59,11 +59,12 @@ type SubmitState = 'idle' | 'loading' | 'success' | 'error';
 interface PhotoPickerProps {
     photoUrls:      string[];
     uploadingCount: number;
+    imageHeaders?:  { Authorization: string };
     onAdd:          (localUri: string) => void;
     onRemove:       (url: string) => void;
 }
 
-function PhotoPicker({ photoUrls, uploadingCount, onAdd, onRemove }: PhotoPickerProps) {
+function PhotoPicker({ photoUrls, uploadingCount, imageHeaders, onAdd, onRemove }: PhotoPickerProps) {
     const canAdd      = photoUrls.length + uploadingCount < MAX_PHOTOS;
     const isUploading = uploadingCount > 0;
 
@@ -122,7 +123,10 @@ function PhotoPicker({ photoUrls, uploadingCount, onAdd, onRemove }: PhotoPicker
                 >
                     {photoUrls.map(url => (
                         <View key={url} style={ph.thumb}>
-                            <Image source={{ uri: `${BASE_URL}${url}` }} style={ph.thumbImg} />
+                            <Image
+                                source={{ uri: `${BASE_URL}${url}`, headers: imageHeaders }}
+                                style={ph.thumbImg}
+                            />
                             <TouchableOpacity
                                 style={ph.removeBtn}
                                 onPress={() => onRemove(url)}
@@ -770,6 +774,15 @@ export default function ClientHomeScreen() {
     // ── Photo state (upload-on-select) ─────────────────────────────────────────
     const [photoUrls,      setPhotoUrls]      = useState<string[]>([]);
     const [uploadingCount, setUploadingCount] = useState(0);
+    const [imageHeaders,   setImageHeaders]   = useState<{ Authorization: string } | undefined>(undefined);
+
+    useEffect(() => {
+        let alive = true;
+        getImageRequestHeaders().then(headers => {
+            if (alive) setImageHeaders(headers);
+        });
+        return () => { alive = false; };
+    }, []);
 
     // ── Submit state ───────────────────────────────────────────────────────────
     const [submitState, setSubmitState] = useState<SubmitState>('idle');
@@ -1285,6 +1298,7 @@ export default function ClientHomeScreen() {
                 <PhotoPicker
                     photoUrls={photoUrls}
                     uploadingCount={uploadingCount}
+                    imageHeaders={imageHeaders}
                     onAdd={handleAddPhoto}
                     onRemove={handleRemovePhoto}
                 />

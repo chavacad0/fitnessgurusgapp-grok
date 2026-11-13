@@ -1,11 +1,11 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import path from 'path';
 import { getDb } from './db/mongo';
 import routes from './api/routes';
 import authRoutes from './api/authRoutes';
 import uploadRoutes from './api/uploadRoutes';
+import photoRoutes from './api/photoRoutes';
 import whatsappRoutes from './api/whatsappRoutes';
 
 dotenv.config();
@@ -40,13 +40,14 @@ app.use(cors({
 
 app.use(express.json());
 
-// Serve uploaded photos as public static files
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+// Progress photos are private. They are not served from /uploads.
+// A logged-in client or their coach reads them from GET /api/photos/:id.
 
 // Routes
 app.use('/api', routes);
 app.use('/api/auth', authRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/photos', photoRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 
 // Global error handling middleware (catches unhandled errors from routes)
@@ -135,6 +136,8 @@ async function startServer() {
         console.log(`   POST http://localhost:${PORT}/api/auth/login`);
         console.log(`   POST http://localhost:${PORT}/api/auth/client-login`);          // ← NEW
         console.log(`   POST http://localhost:${PORT}/api/auth/connect-coach              [CLIENT AUTH]`); // ← connects client to coach via invite code
+        console.log(`   POST http://localhost:${PORT}/api/upload/checkin-photo                     [CLIENT]`);
+        console.log(`   GET  http://localhost:${PORT}/api/photos/:id                               [AUTH]`);
         console.log(`   POST http://localhost:${PORT}/api/whatsapp/send-message          [AUTH]`);
         console.log(`   POST http://localhost:${PORT}/api/auth/google`);
         console.log(`   GET  http://localhost:${PORT}/api/auth/me                                  [AUTH]`);

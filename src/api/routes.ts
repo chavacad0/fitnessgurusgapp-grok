@@ -20,6 +20,7 @@ import { requireRole } from '../middleware/requireRole';
 import { clientAuthMiddleware } from '../middleware/clientAuthMiddleware';
 import { updateClientPlanStatus, findClientById, updateClientBodyProfile } from '../repositories/mongoClientAuthRepo';
 import { canEditCheckIn } from '../utils/checkInEditWindow';
+import { photoUrlsForCheckIn, PhotoInputError } from '../repositories/mongoPhotoRepo';
 import {
     createWorkoutAssignment,
     getWorkoutAssignmentForClient,
@@ -1161,6 +1162,9 @@ router.post('/clients/:clientId/checkins', async (req: AuthenticatedRequest, res
             log('POST /checkins', `📊 Nutrition logged (source: ${nutrition.source}) for ${clientId}`);
         }
 
+        // AUD-008: the phone sends `photos`. Save those private links on the check-in.
+        const photoUrls = await photoUrlsForCheckIn(clientId, req.body?.photos);
+
         const { checkin, isUpdate } = await upsertCheckIn(clientId, date, {
             type: type || 'MANUAL',
             metrics: metrics || undefined,
@@ -1169,6 +1173,7 @@ router.post('/clients/:clientId/checkins', async (req: AuthenticatedRequest, res
             workout_completed: workoutDone,
             steps: stepsToday,
             flaggedForReview: false,
+            photos: photoUrls,
         });
 
         log('POST /checkins', `✅ Check-in ${isUpdate ? 'updated' : 'created'} for ${clientId}`);
@@ -1200,6 +1205,9 @@ router.post('/clients/:clientId/checkins', async (req: AuthenticatedRequest, res
             message: `Check-in saved${detectionResult.flagsDetected > 0 ? ', flagged for review' : ''}`,
         });
     } catch (error: any) {
+        if (error instanceof PhotoInputError || error.statusCode === 400) {
+            return res.status(400).json({ success: false, error: error.message });
+        }
         if (error.code === 11000) {
             return res.status(409).json({ success: false, error: 'A check-in for this client and date already exists.' });
         }
