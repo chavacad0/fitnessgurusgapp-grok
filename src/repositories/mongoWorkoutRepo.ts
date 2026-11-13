@@ -168,6 +168,21 @@ export async function upsertWorkoutLog(data: {
 }
 
 /**
+ * Workout logs for one client on the given dates.
+ * Used to decide a missed-workout flag from logged exercises, not from a blank check-in field.
+ */
+export async function getWorkoutLogsForClientDates(
+    clientId: string,
+    dates: string[],
+): Promise<WorkoutLog[]> {
+    if (dates.length === 0) return [];
+    const db = await getDb();
+    return db.collection<WorkoutLog>('workout_logs')
+        .find({ client_id: clientId, date: { $in: dates } })
+        .toArray();
+}
+
+/**
  * Get the workout log for a specific assignment + client.
  * Returns null if the client hasn't logged yet.
  */

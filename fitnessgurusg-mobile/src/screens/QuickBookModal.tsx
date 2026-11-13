@@ -39,6 +39,16 @@ function addHour(time: string): string {
     return `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
 }
 
+/** Same sentence as the server when this client cannot take another booking. */
+function sessionsLeftMessage(clientName: string | undefined): string {
+    const who = clientName?.trim() ? clientName.trim() : 'This client';
+    return `${who} has 0 sessions left. Booking needs a new plan.`;
+}
+
+function canBookClient(client: ClientStatusItem): boolean {
+    return (client.sessions_remaining ?? 0) > 0;
+}
+
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 
 export default function QuickBookModal({ visible, onClose, onBooked, preselectedClientId, preselectedClientName, preselectedStartTime, preselectedDate }: Props) {
@@ -68,18 +78,21 @@ export default function QuickBookModal({ visible, onClose, onBooked, preselected
         setNotes('');
         setClientSearch('');
 
-        if (!preselectedClientId) {
-            setLoadingClients(true);
-            getClientStatus()
-                .then(r => setClients(r.clients.filter(c => (c.sessions_remaining ?? 0) > 0)))
-                .catch(() => setClients([]))
-                .finally(() => setLoadingClients(false));
-        }
+        setLoadingClients(true);
+        getClientStatus()
+            .then(r => setClients(r.clients))
+            .catch(() => setClients([]))
+            .finally(() => setLoadingClients(false));
     }, [visible, preselectedClientId, preselectedClientName, preselectedStartTime, preselectedDate]);
 
     const filteredClients = clientSearch.trim()
         ? clients.filter(c => c.clientName.toLowerCase().includes(clientSearch.toLowerCase()))
         : clients;
+    const bookableClients = filteredClients.filter(canBookClient);
+    const blockedClients = filteredClients.filter(c => !canBookClient(c));
+    const visibleClients = [...bookableClients.slice(0, 6), ...blockedClients.slice(0, 6)];
+    const selectedClient = clients.find(c => c.clientId === selectedId);
+    const selectedBlocked = !!selectedClient && !canBookClient(selectedClient);
 
     const handleSelectClient = (c: ClientStatusItem) => {
         setSelectedId(c.clientId);
@@ -95,6 +108,10 @@ export default function QuickBookModal({ visible, onClose, onBooked, preselected
 
     const handleSubmit = async () => {
         if (!selectedId) { Alert.alert('Select a client', 'Please choose a client before booking.'); return; }
+        if (selectedBlocked) {
+            Alert.alert('Cannot book', sessionsLeftMessage(selectedClient?.clientName || selectedName));
+            return;
+        }
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { Alert.alert('Invalid date', 'Use format YYYY-MM-DD.'); return; }
         if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
             Alert.alert('Invalid time', 'Use format HH:MM (e.g. 09:00).');
@@ -137,14 +154,21 @@ export default function QuickBookModal({ visible, onClose, onBooked, preselected
                     {/* ── Client ── */}
                     <Text style={styles.label}>CLIENT</Text>
                     {selectedId ? (
-                        <TouchableOpacity
-                            style={styles.selectedClient}
-                            onPress={() => { setSelectedId(''); setSelectedName(''); }}
-                        >
-                            <Ionicons name="person-circle-outline" size={20} color={colors.accent} />
-                            <Text style={styles.selectedClientName}>{selectedName}</Text>
-                            <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
-                        </TouchableOpacity>
+                        <>
+                            <TouchableOpacity
+                                style={styles.selectedClient}
+                                onPress={() => { setSelectedId(''); setSelectedName(''); }}
+                            >
+                                <Ionicons name="person-circle-outline" size={20} color={colors.accent} />
+                                <Text style={styles.selectedClientName}>{selectedName}</Text>
+                                <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                            {selectedBlocked && (
+                                <Text style={styles.clientBlockedMessage}>
+                                    {sessionsLeftMessage(selectedClient?.clientName || selectedName)}
+                                </Text>
+                            )}
+                        </>
                     ) : (
                         <>
                             <TextInput
@@ -156,16 +180,32 @@ export default function QuickBookModal({ visible, onClose, onBooked, preselected
                                 autoCapitalize="words"
                             />
                             {loadingClients && <ActivityIndicator size="small" color={colors.accent} style={{ marginVertical: spacing.sm }} />}
-                            {filteredClients.slice(0, 6).map(c => (
-                                <TouchableOpacity
-                                    key={c.clientId}
-                                    style={styles.clientRow}
-                                    onPress={() => handleSelectClient(c)}
-                                >
-                                    <Text style={styles.clientRowName}>{c.clientName}</Text>
-                                    <Text style={styles.clientRowSessions}>{c.sessions_remaining ?? 0} sessions left</Text>
-                                </TouchableOpacity>
-                            ))}
+                            {visibleClients.map(c => {
+                                const bookable = canBookClient(c);
+                                return (
+                                    <TouchableOpacity
+                                        key={c.clientId}
+                                        style={[styles.clientRow, !bookable && styles.clientRowBlocked]}
+                                        onPress={() => { if (bookable) handleSelectClient(c); }}
+                                        disabled={!bookable}
+                                        accessibilityState={{ disabled: !bookable }}
+                                    >
+                                        <View style={styles.clientRowText}>
+                                            <Text style={[styles.clientRowName, !bookable && styles.clientRowNameBlocked]}>
+                                                {c.clientName}
+                                            </Text>
+                                            {!bookable && (
+                                                <Text style={styles.clientBlockedMessage}>
+                                                    {sessionsLeftMessage(c.clientName)}
+                                                </Text>
+                                            )}
+                                        </View>
+                                        {bookable && (
+                                            <Text style={styles.clientRowSessions}>{c.sessions_remaining ?? 0} sessions left</Text>
+                                        )}
+                                    </TouchableOpacity>
+                                );
+                            })}
                             {!loadingClients && clients.length === 0 && (
                                 <Text style={styles.noClientsText}>No clients with active sessions found.</Text>
                             )}
@@ -230,9 +270,9 @@ export default function QuickBookModal({ visible, onClose, onBooked, preselected
 
                     {/* ── CTA ── */}
                     <TouchableOpacity
-                        style={[styles.bookButton, submitting && { opacity: 0.5 }]}
+                        style={[styles.bookButton, (submitting || selectedBlocked) && { opacity: 0.5 }]}
                         onPress={handleSubmit}
-                        disabled={submitting}
+                        disabled={submitting || selectedBlocked}
                         activeOpacity={0.85}
                     >
                         {submitting
@@ -317,8 +357,12 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
     },
+    clientRowBlocked: { alignItems: 'flex-start', opacity: 0.85 },
+    clientRowText: { flex: 1, paddingRight: spacing.sm },
     clientRowName:     { ...typography.body, color: colors.textPrimary },
+    clientRowNameBlocked: { color: colors.textSecondary },
     clientRowSessions: { ...typography.caption, color: colors.textSecondary },
+    clientBlockedMessage: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     noClientsText:     { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginVertical: spacing.md },
 
     timeRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
