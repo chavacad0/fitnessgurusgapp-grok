@@ -31,6 +31,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 - [Pull request #11](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/11) — On Home, the Energy and Appetite rating cards stay closed until you tap that tile in Today so far. Tap again to close it. The number on the tile still updates, and it is still saved as 1 to 10. Steps, reminders, and Submit are unchanged.
 - [Pull request #12](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/12) — Body Measurements on Profile uses the approved figure, with tape marks on the neck, chest, waist, and hips. The chest tile is labelled Chest. Saved numbers, Add, Edit, and the tap-for-instructions notes work the same way.
 
+### Added
+
+- [Pull request #8](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/8) — PROJECT_STATUS: all-in-one client app roadmap based on Trainerize comparison. Docs only. Nothing in the app is built.
+
 ## [2026-11-12]
 
 ### Added
