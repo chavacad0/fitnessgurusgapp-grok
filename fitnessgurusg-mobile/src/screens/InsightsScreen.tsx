@@ -26,8 +26,10 @@ import {
     ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
-import { colors, spacing, radius, typography, shadows } from '../theme/theme';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { colors, spacing, radius, typography, shadows, palette } from '../theme/theme';
+import { fontStyle, useKitFonts } from '../theme/fonts';
 import {
     getRevenueSummary,
     getDashboard,
@@ -134,6 +136,29 @@ const t = StyleSheet.create({
     label: { fontSize: 10, fontWeight: '600', textAlign: 'center', marginTop: 3, letterSpacing: 0.2 },
 });
 
+function PlanMix({ items }: { items: RevenueSummary['planBreakdown'] }) {
+    const swatches = ['#A7F3D0', '#0F766E', '#183A4A', '#6B7280'];
+    return (
+        <View style={s.listCard}>
+            <View style={s.mixBar}>
+                {items.map((p, i) => (
+                    <View
+                        key={p.planName}
+                        style={{ flex: Math.max(p.count, 1), backgroundColor: swatches[i % swatches.length] }}
+                    />
+                ))}
+            </View>
+            {items.map((p, i) => (
+                <View key={`${p.planName}-row`} style={s.mixRow}>
+                    <View style={[s.mixDot, { backgroundColor: swatches[i % swatches.length] }]} />
+                    <Text style={s.mixName}>{p.planName}</Text>
+                    <Text style={s.mixCount}>{p.count}</Text>
+                </View>
+            ))}
+        </View>
+    );
+}
+
 function BusinessInsights({ revenue }: { revenue: RevenueSummary }) {
     const expiring = revenue.expiringSoon ?? 0;
     return (
@@ -174,7 +199,7 @@ function RenewalsSection({ revenue }: { revenue: RevenueSummary }) {
     if (clients.length === 0) {
         return (
             <View style={s.emptyCard}>
-                <Text style={s.emptyIcon}>🗓</Text>
+                <Ionicons name="calendar-outline" size={22} color={colors.textSecondary} />
                 <Text style={s.emptyText}>No renewals due in the next 30 days.</Text>
             </View>
         );
@@ -183,14 +208,14 @@ function RenewalsSection({ revenue }: { revenue: RevenueSummary }) {
     return (
         <View style={s.listCard}>
             {clients.map((c, i) => {
-                const urgent = c.expiresInDays <= 7;
-                const soon   = c.expiresInDays <= 14;
-                const dayClr = urgent ? RED : soon ? AMBER : colors.textSecondary;
+                const expired = c.expiresInDays < 0;
+                const soon    = c.expiresInDays <= 14;
+                const dayClr  = expired ? RED : soon ? AMBER : colors.textSecondary;
                 return (
                     <View key={c.clientId}>
                         <View style={s.renewRow}>
-                            <View style={[s.avatar, urgent && s.avatarUrgent]}>
-                                <Text style={[s.avatarTxt, urgent && s.avatarTxtUrgent]}>
+                            <View style={[s.avatar, expired && s.avatarUrgent]}>
+                                <Text style={[s.avatarTxt, expired && s.avatarTxtUrgent]}>
                                     {c.clientName.charAt(0).toUpperCase()}
                                 </Text>
                             </View>
@@ -226,154 +251,77 @@ interface BookingStats {
 }
 
 function BookingPerformance({ stats }: { stats: BookingStats }) {
+    const fonts = useKitFonts();
     const total = stats.booked + stats.done + stats.missed + stats.openSlots;
-    const bookedTotal = stats.booked + stats.done + stats.missed;
-    const rate  = total > 0 ? Math.round((bookedTotal / total) * 100) : 0;
-
-    const rows: Array<{ icon: string; color: string; label: string; value: string }> = [
-        { icon: 'calendar-outline',       color: GREEN,            label: 'Open slots today',    value: String(stats.openSlots) },
-        { icon: 'checkmark-circle-outline', color: '#4F46E5',       label: 'Booked sessions',     value: String(stats.booked) },
-        { icon: 'checkmark-done-outline', color: GREEN,            label: 'Completed',           value: String(stats.done) },
-        { icon: 'close-circle-outline',   color: RED,              label: 'Missed / Cancelled',  value: String(stats.missed) },
-        { icon: 'stats-chart-outline',    color: NAVY,             label: 'Utilisation rate',    value: `${rate}%` },
-    ];
+    const bookedTotal = stats.booked + stats.done;
+    const rate = total > 0 ? Math.round((bookedTotal / total) * 100) : 0;
 
     return (
-        <View style={s.listCard}>
-            {rows.map((r, i) => (
-                <View key={r.label}>
-                    <View style={s.bookRow}>
-                        <View style={[s.bookIconWrap, { backgroundColor: r.color + '18' }]}>
-                            <Ionicons name={r.icon as any} size={16} color={r.color} />
-                        </View>
-                        <Text style={s.bookLabel}>{r.label}</Text>
-                        <Text style={[s.bookValue, { color: r.color }]}>{r.value}</Text>
-                    </View>
-                    {i < rows.length - 1 && <Divider />}
+        <View style={s.utilCard}>
+            <View style={s.ring}>
+                <Text style={[s.ringValue, fontStyle(fonts.heading, '800')]}>{rate}%</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+                <Text style={[s.utilTitle, fontStyle(fonts.bodySemibold, '700')]}>Utilisation</Text>
+                <Text style={s.utilSub}>
+                    {total === 0
+                        ? 'No slots today'
+                        : `${bookedTotal} of ${total} slots booked today`}
+                </Text>
+                <View style={s.utilPills}>
+                    <Text style={[s.utilPill, { backgroundColor: '#E7EEF2', color: NAVY }]}>{stats.booked} upcoming</Text>
+                    <Text style={[s.utilPill, { backgroundColor: '#DCFCE7', color: GREEN }]}>{stats.done} done</Text>
+                    <Text style={[s.utilPill, { backgroundColor: '#F3F4F6', color: colors.textSecondary }]}>{stats.missed} missed</Text>
                 </View>
-            ))}
+            </View>
         </View>
     );
 }
 
 // ─── Section 4: Client Attention ──────────────────────────────────────────────
 
-interface AttentionItem {
-    clientId:   string;
-    name:       string;
-    reason:     string;
-    urgency:    'high' | 'medium' | 'low';
-}
+function ClientAttentionSection({
+    clients,
+    onOpen,
+}: {
+    clients: ClientStatusItem[];
+    onOpen: (filter: 'missed' | 'followUp') => void;
+}) {
+    const noCheckIn = clients.filter(c => !c.hasCheckedInToday).length;
+    const lowSessions = clients.filter(c =>
+        c.sessions_remaining != null && c.sessions_remaining <= 2 && c.plan_status === 'active',
+    ).length;
+    const expiring = clients.filter(c => {
+        if (!c.expiry_date) return false;
+        const days = daysUntil(c.expiry_date);
+        return days >= 0 && days <= 30;
+    }).length;
 
-function buildAttentionList(clients: ClientStatusItem[]): AttentionItem[] {
-    const items: AttentionItem[] = [];
-    const today = todaySGT();
-
-    for (const c of clients) {
-        // No check-in today
-        if (!c.hasCheckedInToday) {
-            items.push({
-                clientId: c.clientId,
-                name:     c.clientName,
-                reason:   'No check-in today',
-                urgency:  'medium',
-            });
-        }
-        // Very low sessions (≤2)
-        if (c.sessions_remaining != null && c.sessions_remaining <= 2 && c.plan_status === 'active') {
-            items.push({
-                clientId: c.clientId,
-                name:     c.clientName,
-                reason:   `${c.sessions_remaining} session${c.sessions_remaining !== 1 ? 's' : ''} remaining`,
-                urgency:  'high',
-            });
-        } else if (c.sessions_remaining != null && c.sessions_remaining <= 4 && c.plan_status === 'active') {
-            // Moderate low (3-4)
-            items.push({
-                clientId: c.clientId,
-                name:     c.clientName,
-                reason:   `${c.sessions_remaining} sessions remaining`,
-                urgency:  'low',
-            });
-        }
-        // Plan expiring within 7 days
-        if (c.expiry_date) {
-            const days = daysUntil(c.expiry_date);
-            if (days >= 0 && days <= 7) {
-                items.push({
-                    clientId: c.clientId,
-                    name:     c.clientName,
-                    reason:   `Plan expires in ${days} day${days !== 1 ? 's' : ''}`,
-                    urgency:  days <= 3 ? 'high' : 'medium',
-                });
-            }
-        }
-        // No plan at all
-        if (c.plan_status === 'none' || c.plan_status === 'expired') {
-            items.push({
-                clientId: c.clientId,
-                name:     c.clientName,
-                reason:   c.plan_status === 'expired' ? 'Plan expired — renewal needed' : 'No active plan',
-                urgency:  'high',
-            });
-        }
-    }
-
-    // Sort: high → medium → low, deduplicate per clientId+reason
-    const seen = new Set<string>();
-    return items
-        .filter(item => {
-            const key = `${item.clientId}:${item.reason}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-        })
-        .sort((a, b) => {
-            const order = { high: 0, medium: 1, low: 2 };
-            return order[a.urgency] - order[b.urgency];
-        });
-}
-
-const URGENCY_COLOR: Record<string, string> = {
-    high:   RED,
-    medium: AMBER,
-    low:    colors.textSecondary,
-};
-
-function ClientAttentionSection({ clients }: { clients: ClientStatusItem[] }) {
-    const items = buildAttentionList(clients);
-
-    if (items.length === 0) {
-        return (
-            <View style={s.emptyCard}>
-                <Text style={s.emptyIcon}>✅</Text>
-                <Text style={s.emptyText}>All clients are on track. Nothing needs attention.</Text>
-            </View>
-        );
-    }
+    const rows: Array<{ label: string; count: number; filter: 'missed' | 'followUp' }> = [
+        { label: 'No check-in today', count: noCheckIn, filter: 'missed' },
+        { label: 'Low sessions (2 or fewer)', count: lowSessions, filter: 'followUp' },
+        { label: 'Plan expiring in 30 days', count: expiring, filter: 'followUp' },
+    ];
 
     return (
         <View style={s.listCard}>
-            {items.map((item, i) => {
-                const clr = URGENCY_COLOR[item.urgency];
-                return (
-                    <View key={`${item.clientId}:${item.reason}`}>
-                        <View style={s.attRow}>
-                            <View style={[s.avatar, { backgroundColor: clr + '18' }]}>
-                                <Text style={[s.avatarTxt, { color: clr }]}>
-                                    {item.name.charAt(0).toUpperCase()}
-                                </Text>
-                            </View>
-                            <View style={s.attInfo}>
-                                <Text style={s.attName} numberOfLines={1}>{item.name}</Text>
-                                <Text style={[s.attReason, { color: clr }]}>{item.reason}</Text>
-                            </View>
-                            <View style={[s.urgencyDot, { backgroundColor: clr }]} />
+            {rows.map((row, i) => (
+                <View key={row.label}>
+                    <TouchableOpacity style={s.attRow} onPress={() => onOpen(row.filter)} accessibilityRole="button">
+                        <View style={[s.attIcon, { backgroundColor: row.count > 0 ? '#FEF3C7' : colors.surfaceMuted }]}>
+                            <Ionicons
+                                name={row.filter === 'missed' ? 'time-outline' : 'calendar-outline'}
+                                size={16}
+                                color={row.count > 0 ? AMBER : colors.textSecondary}
+                            />
                         </View>
-                        {i < items.length - 1 && <Divider />}
-                    </View>
-                );
-            })}
+                        <Text style={[s.attName, { flex: 1 }]} numberOfLines={1}>{row.label}</Text>
+                        <Text style={s.attCount}>{row.count}</Text>
+                        <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+                    </TouchableOpacity>
+                    {i < rows.length - 1 && <Divider />}
+                </View>
+            ))}
         </View>
     );
 }
@@ -388,6 +336,9 @@ interface ScreenData {
 }
 
 export default function InsightsScreen() {
+    const insets = useSafeAreaInsets();
+    const fonts = useKitFonts();
+    const navigation = useNavigation<any>();
     const [data,       setData]       = useState<ScreenData>({ revenue: null, dashboard: null, clients: [], openSlotsToday: 0 });
     const [loading,    setLoading]    = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -448,13 +399,12 @@ export default function InsightsScreen() {
                 <RefreshControl
                     refreshing={refreshing}
                     onRefresh={() => loadAll(true)}
-                    tintColor={colors.accent}
+                    tintColor="#FFFFFF"
                 />
             }
         >
-            {/* ── Header ───────────────────────────────────────────────────── */}
-            <View style={s.header}>
-                <Text style={s.screenTitle}>Business Insights</Text>
+            <View style={[s.hero, { paddingTop: insets.top + spacing.md }]}>
+                <Text style={[s.screenTitle, fontStyle(fonts.heading, '700')]}>Business Insights</Text>
                 <Text style={s.screenSub}>
                     {new Date().toLocaleDateString('en-SG', {
                         weekday: 'short', day: 'numeric', month: 'long',
@@ -462,6 +412,7 @@ export default function InsightsScreen() {
                     })}
                 </Text>
             </View>
+            <View style={s.sheet}>
 
             {/* ── Full screen loading ───────────────────────────────────────── */}
             {loading && (
@@ -483,7 +434,15 @@ export default function InsightsScreen() {
                     <View style={s.section}>
                         <SectionLabel title="BUSINESS INSIGHTS" />
                         {data.revenue ? (
-                            <BusinessInsights revenue={data.revenue} />
+                            <>
+                                <BusinessInsights revenue={data.revenue} />
+                                {(data.revenue.planBreakdown?.length ?? 0) > 0 && (
+                                    <View style={{ marginTop: spacing.md }}>
+                                        <SectionLabel title="PLAN MIX" />
+                                        <PlanMix items={data.revenue.planBreakdown} />
+                                    </View>
+                                )}
+                            </>
                         ) : (
                             <View style={s.emptyCard}>
                                 <Text style={s.emptyText}>Revenue data unavailable.</Text>
@@ -512,12 +471,16 @@ export default function InsightsScreen() {
                     {/* ── 4. Client Attention ───────────────────────────────── */}
                     <View style={s.section}>
                         <SectionLabel title="CLIENT ATTENTION" />
-                        <ClientAttentionSection clients={data.clients} />
+                        <ClientAttentionSection
+                            clients={data.clients}
+                            onOpen={(filter) => navigation.navigate('Clients', { initialFilter: filter })}
+                        />
                     </View>
                 </>
             )}
 
             <View style={{ height: 48 }} />
+            </View>
         </ScrollView>
     );
 }
@@ -526,12 +489,40 @@ export default function InsightsScreen() {
 
 const s = StyleSheet.create({
     root:    { flex: 1, backgroundColor: colors.background },
-    content: { padding: spacing.base, paddingBottom: 80 },
-
-    // ── Header ────────────────────────────────────────────────────────────────
-    header:      { marginBottom: spacing.xl },
-    screenTitle: { fontSize: 26, fontWeight: '800', color: NAVY, letterSpacing: -0.4 },
-    screenSub:   { ...typography.body, color: colors.textSecondary, marginTop: 2 },
+    content: { paddingBottom: 80 },
+    hero: {
+        backgroundColor: NAVY,
+        paddingHorizontal: spacing.lg,
+        paddingBottom: spacing.xxl,
+    },
+    sheet: {
+        marginTop: -spacing.lg,
+        paddingHorizontal: spacing.base,
+    },
+    screenTitle: { fontSize: 28, color: '#FFFFFF', letterSpacing: -0.4 },
+    screenSub:   { ...typography.body, color: 'rgba(255,255,255,0.78)', marginTop: 4 },
+    utilCard: {
+        flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+        backgroundColor: colors.surface, borderRadius: radius.card,
+        borderWidth: 1, borderColor: colors.border, padding: spacing.base, ...shadows.card,
+    },
+    ring: {
+        width: 72, height: 72, borderRadius: 36,
+        borderWidth: 8, borderColor: palette.teal,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    ringValue: { fontSize: 16, color: NAVY },
+    utilTitle: { fontSize: 16, color: colors.textPrimary },
+    utilSub: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+    utilPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.sm },
+    utilPill: { overflow: 'hidden', borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3, fontSize: 11, fontWeight: '700' },
+    mixBar: { flexDirection: 'row', height: 10, borderRadius: 6, overflow: 'hidden', margin: spacing.base },
+    mixRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: spacing.base, paddingBottom: spacing.sm },
+    mixDot: { width: 8, height: 8, borderRadius: 4 },
+    mixName: { ...typography.body, color: colors.textPrimary, flex: 1 },
+    mixCount: { ...typography.label, color: colors.textSecondary },
+    attIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+    attCount: { ...typography.h3, color: colors.textPrimary, marginRight: 4 },
 
     // ── States ────────────────────────────────────────────────────────────────
     centred:    { alignItems: 'center', paddingVertical: spacing.xxl, gap: spacing.base },

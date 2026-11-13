@@ -37,6 +37,7 @@ import {
     Alert,
     RefreshControl,
     TextInput,
+    Share,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -44,7 +45,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import { getClientStatus, getRedFlags } from '../services/apiClient';
 import { useAuth } from '../context/AuthContext';
 import { ClientStatusItem, RedFlag, PlanStatus } from '../types';
-import { colors, spacing, radius, typography, shadows } from '../theme/theme';
+import { colors, spacing, radius, typography, shadows, palette } from '../theme/theme';
+import { fontStyle, useKitFonts } from '../theme/fonts';
+import UserAvatar from '../components/UserAvatar';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -208,10 +211,10 @@ const RENEWAL_EXPIRY_DAYS    = 30; // expiry within this many days → Expiring 
  * "No Plan" filter, NOT here — so they are intentionally excluded.
  *
  * Priority order (highest → lowest):
- *   1. plan_status === 'expired'          → '⚠ Plan expired'
+ *   1. plan_status === 'expired'          → 'Plan expired'
  *   2. sessions_remaining === 0           → '0 sessions left'
- *   3. sessions_remaining <= 2            → '🔢 Low sessions'
- *   4. expiry within RENEWAL_EXPIRY_DAYS  → '⏳ Expiring soon'
+ *   3. sessions_remaining <= 2            → 'Low sessions'
+ *   4. expiry within RENEWAL_EXPIRY_DAYS  → 'Expiring Soon'
  *
  * Returns null for:
  *   • healthy active clients
@@ -222,16 +225,16 @@ function getRenewalBadge(
 ): { bg: string; border: string; text: string; label: string } | null {
     // ── Priority 1: plan explicitly expired ───────────────────────────────────
     if (client.plan_status === 'expired') {
-        return { bg: '#FEE2E2', border: '#FECACA', text: '#DC2626', label: '⚠ Plan expired' };
+        return { bg: '#FEE2E2', border: '#FECACA', text: '#DC2626', label: 'Plan expired' };
     }
 
     // ── Priority 2 & 3: session count exhausted or critically low ─────────────
     if (client.sessions_remaining != null) {
         if (client.sessions_remaining === 0) {
-            return { bg: '#FEE2E2', border: '#FECACA', text: '#DC2626', label: '0 sessions left' };
+            return { bg: '#FEF3C7', border: '#FCD34D', text: '#92400E', label: '0 sessions left' };
         }
         if (client.sessions_remaining <= RENEWAL_LOW_SESSIONS) {
-            return { bg: '#FEF3C7', border: '#FCD34D', text: '#92400E', label: '🔢 Low sessions' };
+            return { bg: '#FEF3C7', border: '#FCD34D', text: '#92400E', label: 'Low sessions' };
         }
     }
 
@@ -239,7 +242,7 @@ function getRenewalBadge(
     if (client.expiry_date) {
         const daysLeft = daysUntilExpiry(client.expiry_date);
         if (daysLeft >= 0 && daysLeft <= RENEWAL_EXPIRY_DAYS) {
-            return { bg: '#FEF3C7', border: '#FCD34D', text: '#92400E', label: '⏳ Expiring soon' };
+            return { bg: '#FEF3C7', border: '#FCD34D', text: '#92400E', label: 'Expiring Soon' };
         }
     }
 
@@ -557,28 +560,6 @@ const cr = StyleSheet.create({
 });
 
 /**
- * followUpBadgeLabel — converts an alertReason string into a compact badge label.
- * Uses the already-computed alertReason field on EnrichedClient (no extra API call).
- *
- * Priority order matches buildAlertReason():
- *   1. Specific flag types (LOW_ENERGY, MISSED_CHECKIN)
- *   2. Missed today
- *   3. Plan state (derived from the reason string)
- *   4. Fallback → generic Follow-Up
- */
-function followUpBadgeLabel(alertReason: string, client: EnrichedClient): string {
-    const r = alertReason.toLowerCase();
-    if (r.includes('low energy'))      return '⚡ Low energy';
-    if (r.includes('missed check-in')) return '📅 No check-in';
-    if (r.includes('missed'))          return '📅 No check-in';
-    // Derive from plan state if available
-    if (client.plan_status === 'expired')       return '📋 Plan expired';
-    if (client.plan_status === 'none' || !client.plan_name) return '📋 No plan';
-    if ((client.sessions_remaining ?? 99) <= 2) return '🔢 Low sessions';
-    return '⚠️ Follow-Up';
-}
-
-/**
  * AllClientsRow — compact row for the client flat list.
  *
  * Badge visibility rules (by activeFilter):
@@ -589,6 +570,18 @@ function followUpBadgeLabel(alertReason: string, client: EnrichedClient): string
  *   'activePlan' → show a plan-status badge (expiring soon highlighted)
  *   'noPlan'     → show a "No Plan" badge so coach sees why this client is here
  */
+function statusLine(client: EnrichedClient): string {
+    if (client.check_in_status === 'paused') return 'Check-ins paused';
+    if (client.plan_status === 'expired') return 'Plan expired';
+    if (!client.hasCheckedInToday) {
+        return client.alertReason && client.alertReason !== 'Flagged'
+            ? client.alertReason
+            : 'Missed check-in today';
+    }
+    if (client.plan_name) return client.plan_name;
+    return 'Checked in';
+}
+
 function AllClientsRow({
     client,
     onPress,
@@ -598,103 +591,72 @@ function AllClientsRow({
     onPress: () => void;
     activeFilter: ClientFilterKey;
 }) {
-    const followUpLabel = followUpBadgeLabel(client.alertReason, client);
-
-    // ── Compute badge to render (or null = hidden) ────────────────────────────
-    //
-    // We determine the badge independently of whether we'll show it,
-    // so accessibility labels can still be accurate.
+    const fonts = useKitFonts();
     type BadgeStyle = { bg: string; border: string; text: string; label: string };
 
-    const attentionBadge: BadgeStyle = {
-        bg: colors.urgentBg, border: colors.urgentBorder,
-        text: colors.urgentText, label: followUpLabel,
-    };
-    const successBadge: BadgeStyle = {
-        bg: colors.badgeSuccessBg, border: colors.successBorder,
-        text: colors.badgeSuccessText, label: '✅ Checked in',
-    };
     const missedBadge: BadgeStyle = {
         bg: colors.badgeWarningBg, border: colors.warningBorder,
-        text: colors.badgeWarningText, label: '📅 No check-in',
+        text: colors.badgeWarningText, label: 'Follow-Up',
     };
     const noPlanBadge: BadgeStyle = {
-        bg: '#F3F4F6', border: '#D1D5DB',
+        bg: '#F3F4F6', border: '#E5E7EB',
         text: '#6B7280', label: 'No Plan',
     };
     const pausedBadge: BadgeStyle = {
-        bg: '#F3F4F6', border: '#D1D5DB',
-        text: '#6B7280', label: '⏸ Paused check-ins',
+        bg: '#F3F4F6', border: '#E5E7EB',
+        text: '#6B7280', label: 'Paused',
     };
     const expiredPlanBadge: BadgeStyle = {
         bg: '#FEE2E2', border: '#FECACA',
-        text: '#DC2626', label: '⚠ Plan expired',
+        text: '#DC2626', label: 'Plan expired',
     };
     const expiringSoonBadge: BadgeStyle = {
         bg: colors.badgeWarningBg, border: colors.warningBorder,
-        text: colors.badgeWarningText, label: '⏳ Expiring soon',
+        text: colors.badgeWarningText, label: 'Expiring Soon',
+    };
+    const activeBadge: BadgeStyle = {
+        bg: colors.badgeSuccessBg, border: colors.successBorder,
+        text: colors.badgeSuccessText, label: 'Active Plan',
     };
 
-    // Determine the semantic badge (always computed, sometimes not rendered)
-    const semanticBadge: BadgeStyle = client.needsAttention
-        ? attentionBadge
-        : client.hasCheckedInToday
-        ? successBadge
-        : missedBadge;
-
-    // ── Badge visibility rules ────────────────────────────────────────────────
+    const renewal = getRenewalBadge(client);
     let badgeToRender: BadgeStyle | null = null;
 
     switch (activeFilter) {
         case 'all':
-            // Calm directory view — only surface URGENT plan issues or paused check-ins
-            if (client.check_in_status === 'paused') {
-                badgeToRender = pausedBadge;
-            } else if (client.plan_status === 'expired') {
-                badgeToRender = expiredPlanBadge;
-            } else if (!client.plan_status || client.plan_status === 'none') {
-                badgeToRender = noPlanBadge;
-            }
-            // Normal missed / no-check-in badges hidden in 'all' view
+            if (client.check_in_status === 'paused') badgeToRender = pausedBadge;
+            else if (client.plan_status === 'expired') badgeToRender = expiredPlanBadge;
+            else if (!client.plan_status || client.plan_status === 'none') badgeToRender = noPlanBadge;
+            else if (renewal) badgeToRender = renewal.label === 'Expiring Soon' ? expiringSoonBadge : renewal;
+            else if (!client.hasCheckedInToday) badgeToRender = missedBadge;
+            else badgeToRender = activeBadge;
             break;
-
         case 'followUp':
-            // Always show the renewal/payment reason — the whole point of this filter
-            badgeToRender = getRenewalBadge(client);
+            badgeToRender = renewal;
             break;
-
         case 'missed':
-            // Only show missed badge for non-paused clients
-            if (client.check_in_status !== 'paused') {
-                badgeToRender = missedBadge;
-            }
+            if (client.check_in_status !== 'paused') badgeToRender = missedBadge;
             break;
-
         case 'activePlan':
-            // Surface expiry urgency so coach can prioritise renewals
-            if (client.plan_status === 'expiring_soon') {
-                badgeToRender = expiringSoonBadge;
-            }
-            // Clients with 'active' plan — no badge noise needed
+            badgeToRender = client.plan_status === 'expiring_soon' ? expiringSoonBadge : activeBadge;
             break;
-
         case 'noPlan':
-            // All clients here have no plan — always show the no-plan badge
             badgeToRender = noPlanBadge;
             break;
     }
 
-    // Build the single meta line with dot separators
-    const metaParts: string[] = [];
-    if (client.plan_name)                                                   metaParts.push(client.plan_name);
-    if (client.sessions_remaining != null && client.sessions_total != null) metaParts.push(`${client.sessions_remaining}/${client.sessions_total} sessions`);
-    const expiry = client.expiry_date ? expiryLabel(client.expiry_date) : '';
-    if (expiry)                                                             metaParts.push(expiry);
-    const metaLine = metaParts.length > 0 ? metaParts.join(' · ') : 'No active plan';
+    const line = activeFilter === 'followUp'
+        ? (renewal?.label ?? statusLine(client))
+        : statusLine(client);
+    const lineAmber = activeFilter === 'followUp' || (!client.hasCheckedInToday && client.plan_status !== 'expired');
+    const showRemind = activeFilter === 'followUp';
 
-    // Expiry warning tints the meta line amber — only when expiry label is present AND
-    // we're not already tinting the whole row via an expired badge.
-    const metaAmber = !!expiry && client.plan_status !== 'expired';
+    const remind = () => {
+        const today = new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' });
+        Share.share({
+            message: `Hi ${client.clientName}, just a gentle reminder to submit your daily check-in for today (${today}). Thank you!`,
+        }).catch(() => {});
+    };
 
     return (
         <TouchableOpacity
@@ -704,111 +666,65 @@ function AllClientsRow({
             accessibilityRole="button"
             accessibilityLabel={`${client.clientName}${badgeToRender ? ', ' + badgeToRender.label : ''}`}
         >
-            {/* Avatar */}
-            <View style={ar.avatar}>
-                <Text style={ar.avatarText}>{client.clientName.charAt(0).toUpperCase()}</Text>
-            </View>
-
-            {/* Info column */}
+            <UserAvatar name={client.clientName} size={44} />
             <View style={ar.clientInfo}>
-
-                {/* Line 1: name + chevron */}
-                <View style={ar.topLine}>
-                    <Text style={ar.name} numberOfLines={1}>{client.clientName}</Text>
-                    <Ionicons name="chevron-forward" size={15} color={colors.placeholder} />
-                </View>
-
-                {/* Line 2: plan · sessions · expiry */}
-                <Text
-                    style={[ar.metaText, metaAmber && ar.metaWithExpiry]}
-                    numberOfLines={2}
-                >
-                    {metaLine}
+                <Text style={[ar.name, fontStyle(fonts.bodySemibold, '600')]} numberOfLines={1}>{client.clientName}</Text>
+                <Text style={[ar.metaText, lineAmber && ar.metaWithExpiry, fontStyle(fonts.body, '400')]} numberOfLines={2}>
+                    {line}
                 </Text>
-
-                {/* Line 3: status badge — only when badgeToRender is set */}
-                {badgeToRender && (
-                    <View style={ar.badgeRow}>
-                        <View style={[ar.badge, { backgroundColor: badgeToRender.bg, borderColor: badgeToRender.border }]}>
-                            <Text style={[ar.badgeText, { color: badgeToRender.text }]}>{badgeToRender.label}</Text>
-                        </View>
-                    </View>
-                )}
-
             </View>
+            {showRemind ? (
+                <TouchableOpacity
+                    style={ar.remindBtn}
+                    onPress={remind}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remind ${client.clientName}`}
+                >
+                    <Text style={[ar.remindText, fontStyle(fonts.bodySemibold, '600')]}>Remind</Text>
+                </TouchableOpacity>
+            ) : badgeToRender ? (
+                <View style={[ar.badge, { backgroundColor: badgeToRender.bg }]}>
+                    <Text style={[ar.badgeText, { color: badgeToRender.text }]}>{badgeToRender.label}</Text>
+                </View>
+            ) : null}
         </TouchableOpacity>
     );
 }
 
 const ar = StyleSheet.create({
-    // Outer row — align top so badge row below doesn't force avatar to mid-stretch
     row: {
         flexDirection:     'row',
-        alignItems:        'flex-start',
+        alignItems:        'center',
         paddingVertical:   14,
-        paddingHorizontal: 12,
-        gap:               10,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-    },
-
-    // Avatar — fixed size, slight top offset to align with name baseline
-    avatar: {
-        width:           36,
-        height:          36,
-        borderRadius:    18,
-        backgroundColor: colors.accentSubtle,
-        alignItems:      'center',
-        justifyContent:  'center',
-        marginTop:       1,
-    },
-    avatarText: { fontSize: 14, fontWeight: '700', color: colors.accent },
-
-    // Info column — stacks three lines vertically, takes all remaining width
-    clientInfo: {
-        flex:     1,
-        minWidth: 0,
-        gap:      3,
-    },
-
-    // Line 1: name (flex:1, shrinks) + chevron pinned right
-    topLine: {
-        flexDirection: 'row',
-        alignItems:    'center',
-        gap:           4,
-    },
-    name: {
-        ...typography.label,
-        color:      colors.textPrimary,
-        flex:       1,
-        flexShrink: 1,
-    },
-
-    // Line 2: plan · sessions · expiry as a single string
-    metaText: {
-        ...typography.caption,
-        color:      colors.textSecondary,
-        flexShrink: 1,
-        lineHeight: 16,
-    },
-    // Amber tint when an expiry warning is embedded in the meta line
-    metaWithExpiry: {
-        color: colors.badgeWarningText,
-    },
-
-    // Line 3: badge on its own row — zero chance of colliding with any text
-    badgeRow: {
-        flexDirection: 'row',
-        marginTop:     2,
-    },
-    badge: {
-        borderRadius:      radius.pill,
+        paddingHorizontal: 14,
+        gap:               12,
+        backgroundColor:   colors.surface,
+        borderRadius:      radius.card,
         borderWidth:       1,
-        paddingVertical:   2,
-        paddingHorizontal: spacing.sm,
-        alignSelf:         'flex-start',
+        borderColor:       colors.border,
+        marginBottom:      10,
+        ...shadows.card,
     },
-    badgeText: { fontSize: 10, fontWeight: '700' },
+    clientInfo: { flex: 1, minWidth: 0 },
+    name: { fontSize: 16, color: colors.textPrimary },
+    metaText: { fontSize: 13, color: colors.textSecondary, marginTop: 2, lineHeight: 18 },
+    metaWithExpiry: { color: colors.amberText },
+    badge: {
+        borderRadius: radius.pill,
+        paddingVertical: 4,
+        paddingHorizontal: 10,
+        alignSelf: 'center',
+    },
+    badgeText: { fontSize: 11, fontWeight: '700' },
+    remindBtn: {
+        borderRadius: radius.pill,
+        borderWidth: 1,
+        borderColor: colors.border,
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        backgroundColor: colors.surface,
+    },
+    remindText: { fontSize: 13, color: palette.primary },
 });
 
 // ─── Mock data (UI testing) ───────────────────────────────────────────────────
@@ -949,6 +865,7 @@ export type ClientsScreenParams = {
 export default function ClientsScreen({ navigation, route }: any) {
     const { logout } = useAuth();
     const insets = useSafeAreaInsets(); // dynamic notch / status-bar height
+    const fonts = useKitFonts();
 
     const [enrichedClients, setEnrichedClients] = useState<EnrichedClient[]>([]);
     const [loading, setLoading] = useState(false);
@@ -1100,32 +1017,35 @@ export default function ClientsScreen({ navigation, route }: any) {
     // Filter pill config — label includes count for quick orientation.
     // Order: All · Follow-Up · Active Plan · No Plan · Missed
     const FILTERS: { key: ClientFilterKey; label: string }[] = [
-        { key: 'all',        label: `All  ${filterCounts.all}` },
-        { key: 'followUp',   label: `Follow-Up  ${filterCounts.followUp}` },
-        { key: 'activePlan', label: `Active Plan  ${filterCounts.activePlan}` },
-        { key: 'noPlan',     label: `No Plan  ${filterCounts.noPlan}` },
-        { key: 'missed',     label: `Missed  ${filterCounts.missed}` },
+        { key: 'all',        label: `All ${filterCounts.all}` },
+        { key: 'activePlan', label: `Active ${filterCounts.activePlan}` },
+        { key: 'followUp',   label: `Follow-Up ${filterCounts.followUp}` },
+        { key: 'noPlan',     label: `No Plan ${filterCounts.noPlan}` },
+        { key: 'missed',     label: `Missed ${filterCounts.missed}` },
     ];
 
     return (
         <View style={s.screen}>
 
             {/* ── TOP CHROME — fixed, never scrolls ───────────────────────── */}
-            <View style={[s.chrome, { paddingTop: insets.top + 16 }]}>
-
-                {/* Header: title + logout */}
-                <View style={s.greetingBlock}>
-                    <View style={s.greetingRow}>
-                        <View style={{ flex: 1 }}>
-                            <Text style={s.greeting}>My Clients</Text>
-                            <Text style={s.date}>{totalClients} client{totalClients !== 1 ? 's' : ''} total</Text>
-                        </View>
-                        <TouchableOpacity onPress={handleLogout} style={s.logoutBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                            <Ionicons name="log-out-outline" size={20} color={colors.textSecondary} />
-                        </TouchableOpacity>
+            <View style={[s.hero, { paddingTop: insets.top + 12 }]}>
+                <View style={s.greetingRow}>
+                    <View style={{ flex: 1 }}>
+                        <Text style={[s.greeting, fontStyle(fonts.heading, '700')]}>My Clients</Text>
+                        <Text style={[s.date, fontStyle(fonts.body, '400')]}>
+                            {totalClients} client{totalClients !== 1 ? 's' : ''}
+                            {filterCounts.followUp > 0
+                                ? ` · ${filterCounts.followUp} need follow-up`
+                                : ''}
+                        </Text>
                     </View>
+                    <TouchableOpacity onPress={handleLogout} style={s.logoutBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityLabel="Sign out">
+                        <Ionicons name="log-out-outline" size={20} color="#FFFFFF" />
+                    </TouchableOpacity>
                 </View>
+            </View>
 
+            <View style={s.chrome}>
                 {/* Error banner */}
                 {error && (
                     <View style={s.errorBanner}>
@@ -1270,11 +1190,16 @@ const s = StyleSheet.create({
         backgroundColor: colors.background,
     },
     // ── Chrome (non-scrolling top section) ──────────────────────────────────
+    hero: {
+        backgroundColor: palette.primary,
+        paddingHorizontal: 20,
+        paddingBottom: 22,
+    },
     chrome: {
         paddingHorizontal: 16,
+        paddingTop: 14,
         paddingBottom: 8,
         backgroundColor: colors.background,
-        // paddingTop set dynamically from insets.top + 16 in JSX
     },
 
     // ── FlatList (fills remaining screen height) ──────────────────────────────
@@ -1283,9 +1208,8 @@ const s = StyleSheet.create({
         backgroundColor: colors.background,
     },
     listContent: {
-        marginHorizontal: 16,
-        marginTop: 0,
-        // card styling lives on listCard; rows have their own borders
+        paddingHorizontal: 16,
+        paddingTop: 4,
     },
 
     // ── Full-screen loading ───────────────────────────────────────────────────
@@ -1302,14 +1226,17 @@ const s = StyleSheet.create({
     greetingBlock: { marginBottom: 8 },
     greetingRow: { flexDirection: 'row', alignItems: 'flex-start' },
     greeting: {
-        fontSize: 26,
-        fontWeight: '800',
-        color: NAVY,
+        fontSize: 28,
+        color: '#FFFFFF',
         letterSpacing: -0.4,
-        marginBottom: spacing.xs,
+        marginBottom: 4,
     },
-    date: { ...typography.body, color: colors.textSecondary },
-    logoutBtn: { marginTop: 4 },
+    date: { ...typography.body, color: 'rgba(255,255,255,0.78)' },
+    logoutBtn: {
+        width: 36, height: 36, borderRadius: 18,
+        backgroundColor: 'rgba(255,255,255,0.12)',
+        alignItems: 'center', justifyContent: 'center',
+    },
 
     // ── Error banner ──────────────────────────────────────────────────────────
     errorBanner: {
@@ -1368,10 +1295,13 @@ const s = StyleSheet.create({
         justifyContent:   'center',     // vertical centering of text within fixed height
         alignItems:       'center',
         alignSelf:        'flex-start', // critical: shrink-wraps to content width, no vertical fill
-        backgroundColor:   '#F0F2F5',
+        backgroundColor:   colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     filterTabActive: {
         backgroundColor: NAVY,
+        borderColor: NAVY,
     },
     filterTabText: {
         fontSize:   13,
