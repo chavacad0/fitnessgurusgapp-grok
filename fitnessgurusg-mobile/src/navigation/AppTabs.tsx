@@ -46,21 +46,17 @@ export default function AppTabs() {
                     borderTopColor:  colors.border,
                     elevation:       0,
                     shadowOpacity:   0,
-                    height:          58,
+                    height:          64,
+                    paddingTop:      6,
                     paddingBottom:   8,
                 },
-                headerStyle: {
-                    backgroundColor: colors.surface,
-                    shadowColor:     'transparent',
-                    elevation:       0,
-                    borderBottomWidth: 1,
-                    borderBottomColor: colors.border,
+                tabBarLabelStyle: {
+                    ...typography.micro,
+                    fontSize: 11,
+                    letterSpacing: 0,
                 },
-                headerTintColor: colors.textPrimary,
-                headerTitleStyle: {
-                    ...typography.h3,
-                    color: colors.textPrimary,
-                },
+                // Each coach screen draws its own navy header.
+                headerShown: false,
             })}
         >
             {TABS.map(tab => (
