@@ -25,6 +25,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ### Fixed
 
+- Booking reliability, [pull request #17](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/17) (AUD-010, AUD-011, AUD-012): a cancelled time slot can be booked again. A booking is refused when the client has no sessions left, and the coach's Book-a-client sheet shows that client as unavailable. A normal check-in no longer raises a false missed-workout flag.
 - Security, [pull request #15](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/15): coach-only routes now refuse a client login. A login token with no role is logged out (401) instead of being treated as a coach. WhatsApp sending from the server is coach-only and switched off until `WHATSAPP_ENABLED` is true (AUD-003). Booking another coach's client is refused before any plan lookup. `npm run test:auth` uses `TEST_MONGODB_URI` only.
 
 ## [2026-11-12]

@@ -74,9 +74,53 @@ export async function getBookingById(bookingId: string): Promise<Booking | null>
  *  - client plan is not expired
  */
 export async function createBooking(booking: Omit<Booking, '_id'>): Promise<Booking> {
+    try {
+        return await insertBooking(booking);
+    } catch (err) {
+        // A booking cancelled before the slot link was cleared still occupies the
+        // unique index. Drop that link and try once more. A live booking is left alone.
+        if (!isDuplicateKey(err)) throw err;
+        const released = await releaseCancelledSlotHold(booking.availability_slot_id);
+        if (!released) throw err;
+        return await insertBooking(booking);
+    }
+}
+
+async function insertBooking(booking: Omit<Booking, '_id'>): Promise<Booking> {
     const db     = await getDb();
     const result = await db.collection<Booking>('bookings').insertOne(booking as any);
     return { ...booking, _id: result.insertedId.toString() };
+}
+
+/**
+ * Removes the slot id from a cancelled booking so the sparse unique index
+ * no longer blocks a new booking for that slot.
+ * Returns true only when a cancelled row was updated.
+ */
+async function releaseCancelledSlotHold(slotId: string): Promise<boolean> {
+    if (!slotId) return false;
+    const db = await getDb();
+    const result = await db.collection('bookings').updateOne(
+        { availability_slot_id: slotId, status: 'cancelled' },
+        { $unset: { availability_slot_id: '' }, $set: { updated_at: new Date() } },
+    );
+    return result.modifiedCount > 0;
+}
+
+function isDuplicateKey(err: unknown): boolean {
+    return typeof err === 'object' && err !== null && (err as { code?: number }).code === 11000;
+}
+
+/**
+ * How many of this client's sessions are reserved by a booking that is not
+ * finished yet. Completed sessions are counted on the plan instead.
+ */
+export async function countBookedSessions(clientId: string): Promise<number> {
+    const db = await getDb();
+    return db.collection('bookings').countDocuments({
+        client_id: clientId,
+        status: 'booked',
+    });
 }
 
 /**
@@ -125,6 +169,8 @@ export async function cancelBooking(
             },
             {
                 $set: { status: 'cancelled', updated_at: new Date() },
+                // Drop the slot link so the unique index lets this slot be booked again.
+                $unset: { availability_slot_id: '' },
             },
             { returnDocument: 'after' }
         );
@@ -153,6 +199,8 @@ export async function cancelBookingByClient(
             },
             {
                 $set: { status: 'cancelled', updated_at: new Date() },
+                // Same as cancelBooking: a cancelled slot must be bookable again.
+                $unset: { availability_slot_id: '' },
             },
             { returnDocument: 'after' }
         );

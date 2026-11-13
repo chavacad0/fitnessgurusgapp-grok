@@ -1,5 +1,6 @@
 import { getRecentCheckIns } from '../repositories/mongoCheckinRepo';
 import { createRedFlag } from '../repositories/mongoRedFlagRepo';
+import { getWorkoutLogsForClientDates, WorkoutLog } from '../repositories/mongoWorkoutRepo';
 import { CheckIn, RedFlag } from '../types';
 
 /**
@@ -46,9 +47,22 @@ export async function detectRedFlagsForClient(clientId: string): Promise<Detecti
     );
     if (lowEnergyFlag) flags.push(lowEnergyFlag);
 
-    // Rule 2: Missed Workout Pattern (3 consecutive days without workout)
+    // Rule 2: Missed Workout Pattern (3 consecutive days without workout).
+    // Uses explicit check-in answers and workout logs. A check-in that never
+    // sent a workout field is not, by itself, a missed workout.
+    const workoutLogs = await getWorkoutLogsForClientDates(
+        clientId,
+        sortedCheckIns.map(checkIn => checkIn.date),
+    );
+    const logsByDate = new Map<string, WorkoutLog[]>();
+    for (const log of workoutLogs) {
+        const list = logsByDate.get(log.date) ?? [];
+        list.push(log);
+        logsByDate.set(log.date, list);
+    }
     const missedWorkoutFlag = detectConsecutiveMissedWorkouts(
         sortedCheckIns,
+        logsByDate,
         3,
         'MISSED_WORKOUT',
         'medium',
@@ -157,10 +171,25 @@ function detectConsecutiveLowMetric(
 }
 
 /**
+ * A day is a missed workout only when the saved data says so.
+ * A completed exercise in a workout log means the workout was done.
+ * A log whose exercises are all incomplete is a miss.
+ * An explicit workout_completed: false on the check-in is a miss.
+ * A check-in that simply has no workout field, and no workout log, is not a miss.
+ */
+function dayMissedWorkout(checkIn: CheckIn, logs: WorkoutLog[]): boolean {
+    const exercises = logs.flatMap(log => log.exercise_logs ?? []);
+    if (exercises.some(entry => entry.completed === true)) return false;
+    if (exercises.length > 0 && exercises.every(entry => entry.completed !== true)) return true;
+    return checkIn.workout_completed === false;
+}
+
+/**
  * Detect consecutive days without completed workouts
  */
 function detectConsecutiveMissedWorkouts(
     checkIns: CheckIn[],
+    logsByDate: Map<string, WorkoutLog[]>,
     consecutiveDays: number,
     flagType: 'MISSED_WORKOUT',
     severity: 'low' | 'medium' | 'high',
@@ -172,7 +201,7 @@ function detectConsecutiveMissedWorkouts(
     // Check the last N consecutive days
     const lastNDays = checkIns.slice(-consecutiveDays);
     const allMissed = lastNDays.every(checkIn =>
-        checkIn.workout_completed === false || checkIn.workout_completed === undefined
+        dayMissedWorkout(checkIn, logsByDate.get(checkIn.date) ?? [])
     );
 
     if (allMissed) {

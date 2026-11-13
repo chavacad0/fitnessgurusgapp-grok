@@ -1,7 +1,7 @@
 import { getAllClients, validateClientOwnership } from '../repositories/mongoClientRepo';
 import { getActivePlanForClient, getActivePlansForCoach, computePlanStatus } from '../repositories/mongoClientPlanRepo';
 import { getAvailabilitySlotById, markSlotBooked, markSlotAvailable, createAvailabilitySlot } from '../repositories/mongoAvailabilityRepo';
-import { createBooking, completeBooking, cancelBooking, getTodayBookings, getBookingsByCoach, getBookingById, rescheduleBooking } from '../repositories/mongoBookingRepo';
+import { createBooking, completeBooking, cancelBooking, getTodayBookings, getBookingsByCoach, getBookingById, rescheduleBooking, countBookedSessions } from '../repositories/mongoBookingRepo';
 import { completeSession } from './sessionService';
 import { getPendingPaymentsForCoach } from '../repositories/mongoPaymentRepo';
 import { Booking, DashboardSummary } from '../types';
@@ -10,12 +10,38 @@ import { Booking, DashboardSummary } from '../types';
  * Booking Service — all booking business logic.
  *
  * Rules enforced:
- *  1. bookSession:      slot must exist + be available + client has sessions + plan not expired
+ *  1. bookSession:      slot must exist + be available + client has sessions left to book + plan not expired
  *  2. quickBookSession: same rules; creates slot + booking in one atomic-ish call
  *  3. completeBookingById: coach must own the booking; session auto-deducted on completion
  *  4. cancelBookingById:   coach must own the booking; slot is reset to available
  *  5. getDashboardSummary: aggregates total clients, low-session alerts, expiring plans, pending payments, bookings
  */
+
+/**
+ * Sentence shown when a booking would use a session the client does not have.
+ * Uses the name stored on the client record. Falls back when that name is blank.
+ */
+export function sessionsLeftBookingMessage(clientName: string | null | undefined): string {
+    const trimmed = typeof clientName === 'string' ? clientName.trim() : '';
+    const who = trimmed.length > 0 ? trimmed : 'This client';
+    return `${who} has 0 sessions left. Booking needs a new plan.`;
+}
+
+/**
+ * Sessions still on the plan, minus sessions already reserved by a booking
+ * that has not been completed or cancelled. Completed sessions are in
+ * sessions_used, so they are not counted twice.
+ */
+async function assertSessionsLeftToBook(
+    client: { id: string; name?: string | null },
+    plan: { sessions_total: number; sessions_used: number },
+): Promise<void> {
+    const reserved = await countBookedSessions(client.id);
+    const sessionsLeft = plan.sessions_total - plan.sessions_used - reserved;
+    if (sessionsLeft <= 0) {
+        throw Object.assign(new Error(sessionsLeftBookingMessage(client.name)), { statusCode: 400 });
+    }
+}
 
 // ─── Book Session (slot-first) ────────────────────────────────────────────────
 
@@ -47,11 +73,12 @@ export async function bookSession(payload: BookSessionPayload): Promise<Booking>
     const plan = await getActivePlanForClient(client_id);
     if (!plan) throw Object.assign(new Error('Client has no active session plan. Assign a plan before booking.'), { statusCode: 400 });
 
+    // 0 sessions (including ones already booked) uses the sessions-left message.
+    // A plan that is expired for another reason keeps the existing expired sentence.
+    await assertSessionsLeftToBook(client, plan);
+
     const planStatus = computePlanStatus(plan);
     if (planStatus === 'expired') throw Object.assign(new Error("Client's session plan has expired."), { statusCode: 400 });
-
-    const sessionsRemaining = plan.sessions_total - plan.sessions_used;
-    if (sessionsRemaining <= 0) throw Object.assign(new Error('Client has no sessions remaining.'), { statusCode: 400 });
 
     // Atomic slot claim — prevents double-booking under concurrency
     const bookedSlot = await markSlotBooked(availability_slot_id, client_id);
@@ -97,11 +124,10 @@ export async function quickBookSession(payload: QuickBookPayload): Promise<Booki
     const plan = await getActivePlanForClient(client_id);
     if (!plan) throw Object.assign(new Error('Client has no active session plan. Assign a plan before booking.'), { statusCode: 400 });
 
+    await assertSessionsLeftToBook(client, plan);
+
     const planStatus = computePlanStatus(plan);
     if (planStatus === 'expired') throw Object.assign(new Error("Client's session plan has expired."), { statusCode: 400 });
-
-    const sessionsRemaining = plan.sessions_total - plan.sessions_used;
-    if (sessionsRemaining <= 0) throw Object.assign(new Error('Client has no sessions remaining.'), { statusCode: 400 });
 
     const now  = new Date();
     const slot = await createAvailabilitySlot(coach_id, { date, start_time, end_time });

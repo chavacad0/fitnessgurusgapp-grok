@@ -123,6 +123,8 @@ async function initIndexes(db: Db): Promise<void> {
             { client_id: 1, status: 1 },
             { name: 'bookings_by_client_status' }
         );
+        // Sparse so a cancelled booking can omit availability_slot_id and free the slot.
+        // Cancel clears that field. Documents that still point at the slot keep it unique.
         await db.collection('bookings').createIndex(
             { availability_slot_id: 1 },
             { unique: true, sparse: true, name: 'bookings_slot_unique' }
