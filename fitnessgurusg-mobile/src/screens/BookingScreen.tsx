@@ -22,7 +22,7 @@
  *
  * ─── Color system ─────────────────────────────────────────────────────────
  *    Green  (#16A34A) = open / available / done
- *    Blue   (#4F46E5) = booked / upcoming
+ *    Navy   (#183A4A) = booked / upcoming
  *    Red    (#DC2626) = missed / cancelled
  *    Navy   (#1B3A4B) = primary chrome
  */
@@ -66,8 +66,7 @@ import MonthCalendar from '../components/MonthCalendar';
 
 const NAVY   = '#183A4A';  // Primary Navy — per spec
 const GREEN  = '#16A34A';
-const RED    = '#DC2626';
-const BLUE   = '#4F46E5';
+const BLUE   = '#183A4A';  // booked / upcoming — navy, not indigo
 const GRAY   = '#6B7280';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -250,6 +249,22 @@ function fmt12h(time24: string): string {
     return `${h12}:${m.toString().padStart(2, '0')} ${period}`;
 }
 
+/** Monday-first week containing `iso`, as YYYY-MM-DD in Singapore time. */
+function weekDates(iso: string): string[] {
+    const noon = new Date(`${iso}T12:00:00+08:00`);
+    const weekday = new Intl.DateTimeFormat('en-US', {
+        weekday: 'short',
+        timeZone: 'Asia/Singapore',
+    }).format(noon);
+    const index = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday);
+    const mondayOffset = index <= 0 ? -6 : 1 - index;
+    return Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(noon);
+        d.setDate(d.getDate() + mondayOffset + i);
+        return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
+    });
+}
+
 function todayISO(): string {
     return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
 }
@@ -266,14 +281,6 @@ function initials(name: string): string {
 
 function firstName(name: string): string {
     return name.split(' ')[0] ?? name;
-}
-
-/** Full date label for the screen title, e.g. "Thu, 8 May" */
-function formatDateTitle(iso: string): string {
-    return new Date(`${iso}T00:00:00+08:00`).toLocaleDateString('en-SG', {
-        weekday: 'short', day: 'numeric', month: 'short',
-        timeZone: 'Asia/Singapore',
-    });
 }
 
 /** Short label for section headers, e.g. "Thu 8 May" */
@@ -304,9 +311,9 @@ function sendWhatsApp(session: Booking, mode: 'remind' | 'followup') {
 // ─── StatusBadge ──────────────────────────────────────────────────────────────
 
 const STATUS_CFG: Record<DisplayStatus, { label: string; bg: string; color: string }> = {
-    upcoming: { label: 'Upcoming', bg: '#EEF2FF', color: BLUE  },
+    upcoming: { label: 'Upcoming', bg: '#E7EEF2', color: BLUE  },
     done:     { label: 'Done',     bg: '#DCFCE7', color: GREEN },
-    missed:   { label: 'Missed',   bg: '#FEE2E2', color: RED   },
+    missed:   { label: 'Missed',   bg: '#F3F4F6', color: GRAY  },
 };
 
 function StatusBadge({ status }: { status: DisplayStatus }) {
@@ -435,14 +442,13 @@ const SessionCard = memo(({
     const ini       = initials(booking.client_name);
     const msgMode   = isMissed ? 'followup' : 'remind';
 
-    const leftStrip = isMissed ? RED : isDone ? GREEN : BLUE;
-    const cardBg    = isMissed ? '#FFFCFC' :
-                      isDone   ? '#F8FFFB' : '#FAFBFF';
-    const cardBorder= isMissed ? '#FECACA' :
-                      isDone   ? '#BBF7D0' : '#C7D2FE';
-    const avatarBg  = isMissed ? '#FEE2E2' :
-                      isDone   ? '#DCFCE7' : '#EEF2FF';
-    const avatarClr = isMissed ? RED : isDone ? GREEN : BLUE;
+    const leftStrip = isMissed ? GRAY : isDone ? GREEN : NAVY;
+    const cardBg    = '#FFFFFF';
+    const cardBorder= isMissed ? '#E5E7EB' :
+                      isDone   ? '#BBF7D0' : '#E5E7EB';
+    const avatarBg  = isMissed ? '#F3F4F6' :
+                      isDone   ? '#DCFCE7' : '#E6F7F1';
+    const avatarClr = isMissed ? GRAY : isDone ? GREEN : NAVY;
 
     return (
         <TouchableOpacity
@@ -585,7 +591,7 @@ const bs = StyleSheet.create({
         overflow:        'hidden',
         opacity:         0.85,
     },
-    strip: { width: 4, backgroundColor: GRAY },
+    strip: { width: 4, backgroundColor: NAVY },
     body:  { flex: 1, padding: 12 },
     row:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
 
@@ -1384,9 +1390,9 @@ function SessionActionModal({ session, onClose, onComplete, onMiss }: ActionModa
                             activeOpacity={0.82}
                         >
                             {busy === 'missed'
-                                ? <ActivityIndicator color={RED} size="small" />
+                                ? <ActivityIndicator color={GRAY} size="small" />
                                 : <>
-                                    <Ionicons name="close-circle-outline" size={18} color={RED} />
+                                    <Ionicons name="close" size={18} color={NAVY} />
                                     <Text style={am.txtMissed}>Mark Missed</Text>
                                   </>
                             }
@@ -1406,7 +1412,7 @@ function SessionActionModal({ session, onClose, onComplete, onMiss }: ActionModa
                 </TouchableOpacity>
 
                 <TouchableOpacity style={am.closeBtn} onPress={onClose}>
-                    <Text style={am.closeTxt}>Done</Text>
+                    <Text style={am.closeTxt}>Close</Text>
                 </TouchableOpacity>
             </View>
         </Modal>
@@ -1432,10 +1438,10 @@ const am = StyleSheet.create({
     },
     btnDone:   { backgroundColor: GREEN },
     txtDone:   { fontSize: 15, fontWeight: '700', color: '#fff' },
-    btnMissed: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FECACA' },
-    txtMissed: { fontSize: 15, fontWeight: '700', color: RED },
-    btnWA:     { backgroundColor: '#F0FDF4', borderWidth: 1, borderColor: '#BBF7D0' },
-    txtWA:     { fontSize: 15, fontWeight: '700', color: '#15803D' },
+    btnMissed: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E5E7EB' },
+    txtMissed: { fontSize: 15, fontWeight: '700', color: NAVY },
+    btnWA:     { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E5E7EB' },
+    txtWA:     { fontSize: 15, fontWeight: '700', color: NAVY },
     closeBtn:  { paddingVertical: 8, marginTop: 2 },
     closeTxt:  { fontSize: 14, color: GRAY, fontWeight: '600' },
 });
@@ -1617,7 +1623,6 @@ export default function BookingScreen() {
 
     // Dynamic title — changes when a non-today date is selected
     const isToday   = selectedDate === today;
-    const titleText = isToday ? "Today's Schedule" : formatDateTitle(selectedDate);
 
     // ── Session actions ───────────────────────────────────────────────────────
 
@@ -1719,13 +1724,9 @@ export default function BookingScreen() {
         <View style={s.root}>
 
             {/* ── TOP CHROME ────────────────────────────────────────────── */}
-            <View style={[s.chrome, { paddingTop: insets.top + 12 }]}>
-
-                {/* Screen title + FAB row */}
+            <View style={[s.scheduleHero, { paddingTop: insets.top + 12 }]}>
                 <View style={s.titleRow}>
-                    <View>
-                        <Text style={s.screenTitle}>{titleText}</Text>
-                    </View>
+                    <Text style={s.screenTitleLight}>Schedule</Text>
                     <View style={s.fabRow}>
                         {/* Block time button */}
                         <TouchableOpacity
@@ -1745,51 +1746,65 @@ export default function BookingScreen() {
                             accessibilityRole="button"
                             accessibilityLabel="Add slot or book a client"
                         >
-                            <Ionicons name="add" size={22} color="#fff" />
+                            <Ionicons name="add" size={22} color={NAVY} />
                         </TouchableOpacity>
                     </View>
                 </View>
-
-                {/* ── Date bar: compact selected-date + toggle ──────────── */}
                 <TouchableOpacity
-                    style={s.dateBar}
+                    style={s.monthChip}
                     onPress={() => setCalendarExpanded(v => !v)}
                     activeOpacity={0.75}
                     accessibilityRole="button"
                     accessibilityLabel={calendarExpanded ? 'Collapse calendar' : 'View month calendar'}
                 >
-                    <View style={s.dateBarLeft}>
-                        <Ionicons name="calendar" size={15} color={NAVY} style={{ marginRight: 6 }} />
-                        <Text style={s.dateBarText}>
-                            {new Date(`${selectedDate}T00:00:00+08:00`).toLocaleDateString('en-SG', {
-                                weekday: 'short', day: 'numeric', month: 'short',
-                                timeZone: 'Asia/Singapore',
-                            })}
-                        </Text>
-                        {selectedDate !== today && (
-                            <TouchableOpacity
-                                onPress={() => {
-                                    setSelectedDate(today);
-                                    setCalendarExpanded(false);
-                                }}
-                                style={s.todayChip}
-                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                            >
-                                <Text style={s.todayChipTxt}>Today</Text>
-                            </TouchableOpacity>
-                        )}
-                    </View>
-                    <View style={s.calToggle}>
-                        <Text style={s.calToggleTxt}>
-                            {calendarExpanded ? 'Hide' : 'Month'}
-                        </Text>
-                        <Ionicons
-                            name={calendarExpanded ? 'chevron-up' : 'chevron-down'}
-                            size={12}
-                            color={NAVY}
-                        />
-                    </View>
+                    <Ionicons name="calendar-outline" size={15} color="#FFFFFF" />
+                    <Text style={s.monthChipText}>
+                        {new Date(`${selectedDate}T12:00:00+08:00`).toLocaleDateString('en-SG', {
+                            month: 'long', year: 'numeric',
+                            timeZone: 'Asia/Singapore',
+                        })}
+                    </Text>
+                    <Ionicons
+                        name={calendarExpanded ? 'chevron-up' : 'chevron-down'}
+                        size={14}
+                        color="#FFFFFF"
+                    />
                 </TouchableOpacity>
+            </View>
+
+            <View style={s.chrome}>
+                <View style={s.weekRow}>
+                    {weekDates(selectedDate).map(iso => {
+                        const selected = iso === selectedDate;
+                        const summary = monthSummaries[iso];
+                        const label = new Date(`${iso}T12:00:00+08:00`).toLocaleDateString('en-SG', {
+                            weekday: 'short',
+                            timeZone: 'Asia/Singapore',
+                        });
+                        const num = new Date(`${iso}T12:00:00+08:00`).toLocaleDateString('en-SG', {
+                            day: 'numeric',
+                            timeZone: 'Asia/Singapore',
+                        });
+                        return (
+                            <TouchableOpacity
+                                key={iso}
+                                style={s.weekCell}
+                                onPress={() => setSelectedDate(iso)}
+                                accessibilityRole="button"
+                                accessibilityLabel={iso}
+                            >
+                                <Text style={s.weekDow}>{label}</Text>
+                                <View style={[s.weekNum, selected && s.weekNumOn]}>
+                                    <Text style={[s.weekNumTxt, selected && s.weekNumTxtOn]}>{num}</Text>
+                                </View>
+                                <View style={s.weekDots}>
+                                    {summary?.openCount ? <View style={[s.weekDot, { backgroundColor: GREEN }]} /> : null}
+                                    {summary?.bookedCount ? <View style={[s.weekDot, { backgroundColor: NAVY }]} /> : null}
+                                </View>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
 
                 {/* ── Month calendar — only visible when expanded ──────────── */}
                 {calendarExpanded && (
@@ -1817,9 +1832,9 @@ export default function BookingScreen() {
                         <Text style={[s.pillNum, { color: countDone > 0 ? GREEN : GRAY }]}>{countDone}</Text>
                         <Text style={[s.pillLbl, { color: countDone > 0 ? GREEN : GRAY }]}>Done</Text>
                     </View>
-                    <View style={[s.pill, countMissed > 0 ? s.pillRed : s.pillMuted]}>
-                        <Text style={[s.pillNum, { color: countMissed > 0 ? RED : GRAY }]}>{countMissed}</Text>
-                        <Text style={[s.pillLbl, { color: countMissed > 0 ? RED : GRAY }]}>Missed</Text>
+                    <View style={[s.pill, s.pillMuted]}>
+                        <Text style={[s.pillNum, { color: GRAY }]}>{countMissed}</Text>
+                        <Text style={[s.pillLbl, { color: GRAY }]}>Missed</Text>
                     </View>
                 </View>
             </View>
@@ -2012,6 +2027,35 @@ const s = StyleSheet.create({
         justifyContent: 'space-between',
         marginBottom:   12,
     },
+    scheduleHero: {
+        backgroundColor: NAVY,
+        paddingHorizontal: 16,
+        paddingBottom: 16,
+    },
+    screenTitleLight: { fontSize: 26, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.3 },
+    monthChip: {
+        alignSelf: 'flex-start',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: 'rgba(255,255,255,0.12)',
+        borderRadius: 20,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+    },
+    monthChipText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+    weekRow: { flexDirection: 'row', marginBottom: 10 },
+    weekCell: { flex: 1, alignItems: 'center' },
+    weekDow: { fontSize: 11, color: GRAY, marginBottom: 4 },
+    weekNum: {
+        width: 32, height: 32, borderRadius: 16,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    weekNumOn: { backgroundColor: NAVY },
+    weekNumTxt: { fontSize: 14, fontWeight: '700', color: NAVY },
+    weekNumTxtOn: { color: '#FFFFFF' },
+    weekDots: { flexDirection: 'row', gap: 3, height: 6, marginTop: 3 },
+    weekDot: { width: 5, height: 5, borderRadius: 3 },
     screenTitle: { fontSize: 20, fontWeight: '800', color: NAVY, letterSpacing: -0.3 },
     screenDate:  { fontSize: 12, color: GRAY, marginTop: 2 },
 
@@ -2022,8 +2066,8 @@ const s = StyleSheet.create({
         gap:           8,
     },
     fab: {
-        width: 40, height: 40, borderRadius: 12,
-        backgroundColor: NAVY,
+        width: 40, height: 40, borderRadius: 20,
+        backgroundColor: '#FFFFFF',
         alignItems: 'center', justifyContent: 'center',
         shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 4,
         shadowOffset: { width: 0, height: 2 }, elevation: 3,
@@ -2042,7 +2086,7 @@ const s = StyleSheet.create({
         borderRadius: 10,
     },
     pillGreen: { backgroundColor: '#F0FDF4' },
-    pillBlue:  { backgroundColor: '#EEF2FF' },
+    pillBlue:  { backgroundColor: '#E7EEF2' },
     pillRed:   { backgroundColor: '#FEE2E2' },
     pillMuted: { backgroundColor: '#F3F4F6' },
     pillNum:   { fontSize: 18, fontWeight: '800' },
@@ -2077,7 +2121,7 @@ const s = StyleSheet.create({
         color:      NAVY,
     },
     todayChip: {
-        backgroundColor:  '#EEF2FF',
+        backgroundColor:  '#E7EEF2',
         borderRadius:     20,
         paddingHorizontal: 8,
         paddingVertical:   2,

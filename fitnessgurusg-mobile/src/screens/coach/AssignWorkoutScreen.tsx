@@ -12,7 +12,7 @@
  *  - Calls POST /api/coach/clients/:clientId/workouts via assignWorkout()
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useLayoutEffect } from 'react';
 import {
     View,
     Text,
@@ -21,15 +21,18 @@ import {
     TextInput,
     TouchableOpacity,
     ActivityIndicator,
-    SafeAreaView,
     KeyboardAvoidingView,
     Platform,
     Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { colors, typography, spacing, radius, shadows } from '../../theme/theme';
+import { colors, typography, spacing, radius, shadows, palette } from '../../theme/theme';
+import { fontStyle, useKitFonts } from '../../theme/fonts';
+import UserAvatar from '../../components/UserAvatar';
+import MonthCalendar from '../../components/MonthCalendar';
 import { assignWorkout } from '../../services/apiClient';
 import type { CoachStackParamList } from '../../navigation/CoachStackParamList';
 
@@ -58,6 +61,32 @@ function todaySGT(): string {
     return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
 }
 
+function shiftDays(iso: string, days: number): string {
+    const d = new Date(`${iso}T12:00:00+08:00`);
+    d.setDate(d.getDate() + days);
+    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
+}
+
+function nextMonday(from: string): string {
+    const d = new Date(`${from}T12:00:00+08:00`);
+    const weekday = new Intl.DateTimeFormat('en-US', {
+        weekday: 'short',
+        timeZone: 'Asia/Singapore',
+    }).format(d);
+    const index = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday);
+    const add = index === 1 ? 7 : index === 0 ? 1 : 8 - index;
+    d.setDate(d.getDate() + add);
+    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
+}
+
+function formatFriendly(iso: string): string {
+    const d = new Date(`${iso}T12:00:00+08:00`);
+    return d.toLocaleDateString('en-SG', {
+        weekday: 'short', day: 'numeric', month: 'short',
+        timeZone: 'Asia/Singapore',
+    });
+}
+
 function emptyExercise(): ExerciseInput {
     return { id: localId(), name: '', target_sets: '3', target_reps: '10', target_weight: '', notes: '' };
 }
@@ -67,7 +96,13 @@ function emptyExercise(): ExerciseInput {
 export default function AssignWorkoutScreen() {
     const navigation = useNavigation<NavProp>();
     const route      = useRoute<RoutePropType>();
+    const insets     = useSafeAreaInsets();
+    const fonts      = useKitFonts();
     const { clientId, clientName } = route.params;
+
+    useLayoutEffect(() => {
+        navigation.setOptions({ headerShown: false });
+    }, [navigation]);
 
     const [date,       setDate]       = useState(todaySGT());
     const [title,      setTitle]      = useState('');
@@ -159,8 +194,15 @@ export default function AssignWorkoutScreen() {
 
     const saving = saveState === 'saving';
 
+    const today = todaySGT();
+    const dateChoices = [
+        { label: 'Today', value: today },
+        { label: 'Tomorrow', value: shiftDays(today, 1) },
+        { label: 'Next Mon', value: nextMonday(today) },
+    ];
+
     return (
-        <SafeAreaView style={s.container}>
+        <View style={s.container}>
             <KeyboardAvoidingView
                 style={{ flex: 1 }}
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -170,26 +212,46 @@ export default function AssignWorkoutScreen() {
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
                 >
-                    {/* Header */}
-                    <View style={s.headerRow}>
-                        <View>
+                    <View style={[s.hero, { paddingTop: insets.top + 8 }]}>
+                        <TouchableOpacity
+                            style={s.backRow}
+                            onPress={() => navigation.goBack()}
+                            accessibilityRole="button"
+                            accessibilityLabel="Go back"
+                        >
+                            <Ionicons name="chevron-back" size={22} color={palette.primary} />
+                        </TouchableOpacity>
+                        <Text style={[s.screenTitle, fontStyle(fonts.heading, '700')]}>Assign workout</Text>
+                    </View>
+
+                    <View style={s.clientCard}>
+                        <UserAvatar name={clientName} size={44} />
+                        <View style={{ flex: 1 }}>
                             <Text style={s.clientLabel}>CLIENT</Text>
-                            <Text style={s.clientName}>{clientName}</Text>
+                            <Text style={[s.clientName, fontStyle(fonts.bodySemibold, '600')]} numberOfLines={1}>{clientName}</Text>
                         </View>
                     </View>
 
-                    {/* Date */}
-                    <Text style={s.fieldLabel}>DATE (YYYY-MM-DD)</Text>
-                    <TextInput
-                        style={s.input}
-                        value={date}
-                        onChangeText={setDate}
-                        placeholder="2026-06-20"
-                        placeholderTextColor={colors.placeholder}
-                        maxLength={10}
-                        autoCapitalize="none"
-                        accessibilityLabel="Workout date"
-                    />
+                    <Text style={s.fieldLabel}>DATE</Text>
+                    <View style={s.chipRow}>
+                        {dateChoices.map(choice => {
+                            const on = date === choice.value;
+                            return (
+                                <TouchableOpacity
+                                    key={choice.label}
+                                    style={[s.chip, on && s.chipOn]}
+                                    onPress={() => setDate(choice.value)}
+                                    accessibilityRole="button"
+                                >
+                                    <Text style={[s.chipText, on && s.chipTextOn]}>{choice.label}</Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                    <View style={s.calendarCard}>
+                        <MonthCalendar selectedDate={date} onSelectDate={setDate} />
+                    </View>
+                    <Text style={s.selectedDate}>{formatFriendly(date)} selected</Text>
 
                     {/* Title */}
                     <Text style={s.fieldLabel}>WORKOUT TITLE</Text>
@@ -324,7 +386,9 @@ export default function AssignWorkoutScreen() {
                             : (
                                 <>
                                     <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
-                                    <Text style={s.saveBtnLabel}>Assign Workout</Text>
+                                    <Text style={s.saveBtnLabel} numberOfLines={2}>
+                                        {`Assign workout to ${clientName} · ${formatFriendly(date)}`}
+                                    </Text>
                                 </>
                             )
                         }
@@ -333,7 +397,7 @@ export default function AssignWorkoutScreen() {
                     <View style={{ height: spacing.xxl }} />
                 </ScrollView>
             </KeyboardAvoidingView>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -344,13 +408,60 @@ const TEAL  = '#0F766E';
 
 const s = StyleSheet.create({
     container:  { flex: 1, backgroundColor: colors.background },
-    scroll:     { padding: spacing.md, paddingBottom: spacing.xxl },
-
-    headerRow:  { marginBottom: spacing.lg },
+    scroll:     { paddingBottom: spacing.xxl },
+    hero: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        paddingHorizontal: spacing.md,
+        paddingBottom: spacing.md,
+        backgroundColor: colors.background,
+    },
+    backRow: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+    screenTitle: { fontSize: 22, color: palette.primary },
+    clientCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        marginHorizontal: spacing.md,
+        marginBottom: spacing.md,
+        backgroundColor: colors.surface,
+        borderRadius: radius.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: spacing.md,
+        ...shadows.card,
+    },
     clientLabel:{ fontSize: 10, fontWeight: '700', color: colors.textSecondary, letterSpacing: 1, marginBottom: 2 },
-    clientName: { ...typography.h2, color: colors.textPrimary },
+    clientName: { fontSize: 16, color: colors.textPrimary },
+    chipRow: { flexDirection: 'row', gap: spacing.sm, marginHorizontal: spacing.md, marginBottom: spacing.sm },
+    chip: {
+        borderRadius: radius.pill,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+    },
+    chipOn: { backgroundColor: palette.primary, borderColor: palette.primary },
+    chipText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+    chipTextOn: { color: '#FFFFFF' },
+    calendarCard: {
+        marginHorizontal: spacing.md,
+        backgroundColor: colors.surface,
+        borderRadius: radius.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+        marginBottom: spacing.sm,
+    },
+    selectedDate: {
+        ...typography.caption,
+        color: palette.teal,
+        textAlign: 'center',
+        marginBottom: spacing.md,
+    },
 
-    fieldLabel: { fontSize: 10, fontWeight: '700', color: colors.textSecondary, letterSpacing: 0.8, marginBottom: spacing.xs },
+    fieldLabel: { fontSize: 10, fontWeight: '700', color: colors.textSecondary, letterSpacing: 0.8, marginBottom: spacing.xs, marginHorizontal: spacing.md },
     input: {
         height:              48,
         backgroundColor:     colors.surface,
@@ -359,6 +470,7 @@ const s = StyleSheet.create({
         borderRadius:        radius.md,
         paddingHorizontal:   spacing.md,
         marginBottom:        spacing.md,
+        marginHorizontal:    spacing.md,
         ...typography.body,
         color:               colors.textPrimary,
     },
@@ -366,7 +478,7 @@ const s = StyleSheet.create({
     sectionHeader: {
         fontSize: 11, fontWeight: '800', color: NAVY,
         letterSpacing: 1.2,
-        marginTop: spacing.sm, marginBottom: spacing.sm,
+        marginTop: spacing.sm, marginBottom: spacing.sm, marginHorizontal: spacing.md,
     },
 
     // Exercise card
@@ -377,6 +489,7 @@ const s = StyleSheet.create({
         borderColor:     colors.border,
         padding:         spacing.md,
         marginBottom:    spacing.md,
+        marginHorizontal: spacing.md,
         ...shadows.card,
     },
     exTitleRow:   { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
@@ -404,6 +517,7 @@ const s = StyleSheet.create({
         borderRadius:    radius.md,
         paddingVertical: spacing.sm,
         marginBottom:    spacing.md,
+        marginHorizontal: spacing.md,
     },
     addExLabel: { ...typography.label, color: colors.accent },
 
@@ -418,6 +532,7 @@ const s = StyleSheet.create({
         borderRadius:    radius.md,
         padding:         spacing.sm,
         marginBottom:    spacing.md,
+        marginHorizontal: spacing.md,
     },
     errorText: { ...typography.caption, color: colors.errorText, flex: 1 },
 
@@ -431,7 +546,9 @@ const s = StyleSheet.create({
         backgroundColor: TEAL,
         borderRadius:    radius.card,
         marginBottom:    spacing.md,
+        marginHorizontal: spacing.md,
+        paddingHorizontal: spacing.md,
     },
     saveBtnDisabled: { backgroundColor: colors.buttonDisabledBg },
-    saveBtnLabel:    { ...typography.label, color: '#fff', fontWeight: '700' },
+    saveBtnLabel:    { ...typography.label, color: '#fff', fontWeight: '700', flex: 1, textAlign: 'center' },
 });

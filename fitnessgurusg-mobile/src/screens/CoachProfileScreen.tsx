@@ -3,9 +3,13 @@ import {
     View, Text, StyleSheet, TouchableOpacity, Alert,
     ScrollView, ActivityIndicator, Clipboard,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { getDashboard, getInviteCode } from '../services/apiClient';
-import { colors, spacing, radius, typography, shadows } from '../theme/theme';
+import { colors, spacing, radius, typography, shadows, palette } from '../theme/theme';
+import { fontStyle, useKitFonts } from '../theme/fonts';
+import UserAvatar from '../components/UserAvatar';
 import { DashboardSummary } from '../types';
 
 /**
@@ -20,6 +24,8 @@ import { DashboardSummary } from '../types';
  *       here too (lightweight, cached by server) to keep this screen self-contained.
  */
 export default function CoachProfileScreen() {
+    const insets = useSafeAreaInsets();
+    const fonts = useKitFonts();
     const { user, logout } = useAuth();
 
     const [dashboard,    setDashboard]    = useState<DashboardSummary | null>(null);
@@ -66,52 +72,25 @@ export default function CoachProfileScreen() {
         );
     };
 
+    const displayName = user?.name?.trim() || '—';
+
     return (
         <ScrollView style={s.list} contentContainerStyle={s.content}>
-
-            {/* ── Hero ──────────────────────────────────────────────────────── */}
-            <View style={s.hero}>
-                <View style={s.avatar}>
-                    <Text style={s.avatarInitials}>{getInitials(user?.name ?? '?')}</Text>
-                </View>
-                <Text style={s.name}>{user?.name ?? '—'}</Text>
-                <Text style={s.email}>{user?.email ?? '—'}</Text>
-                <View style={s.rolePill}>
-                    <Text style={s.roleText}>Coach account</Text>
+            <View style={[s.hero, { paddingTop: insets.top + spacing.md }]}>
+                <Text style={[s.heroTitle, fontStyle(fonts.heading, '700')]}>Profile</Text>
+                <View style={s.identity}>
+                    <UserAvatar name={displayName === '—' ? '?' : displayName} size={64} bgColor="rgba(255,255,255,0.16)" textColor="#FFFFFF" />
+                    <View style={{ flex: 1 }}>
+                        <Text style={[s.name, fontStyle(fonts.heading, '700')]}>{displayName}</Text>
+                        <Text style={s.email}>{user?.email ?? '—'}</Text>
+                        <View style={s.rolePill}>
+                            <Text style={s.roleText}>Coach account</Text>
+                        </View>
+                    </View>
                 </View>
             </View>
 
-            {/* ── Overview (coach-specific) ──────────────────────────────────── */}
-            <Text style={s.sectionLabel}>Overview</Text>
-            {dashLoading ? (
-                <View style={s.loadingCard}>
-                    <ActivityIndicator size="small" color={colors.accent} />
-                </View>
-            ) : (
-                <View style={s.statRow}>
-                    <StatTile
-                        value={dashboard?.total_clients ?? 0}
-                        label="Total Clients"
-                        icon="👥"
-                    />
-                    <StatTile
-                        value={dashboard?.today_bookings?.length ?? 0}
-                        label="Today's Sessions"
-                        icon="📅"
-                    />
-                    <StatTile
-                        value={dashboard?.pending_payments_count ?? 0}
-                        label="Pending Payments"
-                        icon="💳"
-                        highlight={
-                            (dashboard?.pending_payments_count ?? 0) > 0
-                        }
-                    />
-                </View>
-            )}
-
-            {/* ── Invite Code ───────────────────────────────────────────────── */}
-            <Text style={s.sectionLabel}>Client Invite Code</Text>
+            <View style={s.sheet}>
             <View style={s.infoCard}>
                 {codeLoading ? (
                     <View style={ic.loading}>
@@ -119,9 +98,10 @@ export default function CoachProfileScreen() {
                     </View>
                 ) : inviteCode ? (
                     <View style={ic.body}>
-                        <Text style={ic.hint}>Share this code with new clients so they can register and join your program.</Text>
-                        <View style={ic.codeRow}>
-                            <Text style={ic.code}>{inviteCode}</Text>
+                        <Text style={ic.kicker}>CLIENT INVITE CODE</Text>
+                        <Text style={ic.hint}>New clients enter this when they sign up.</Text>
+                        <View style={ic.codeBox}>
+                            <Text style={[ic.code, fontStyle(fonts.heading, '700')]}>{inviteCode}</Text>
                             <TouchableOpacity
                                 style={[ic.copyBtn, codeCopied && ic.copyBtnSuccess]}
                                 onPress={handleCopyCode}
@@ -129,7 +109,8 @@ export default function CoachProfileScreen() {
                                 accessibilityRole="button"
                                 accessibilityLabel="Copy invite code"
                             >
-                                <Text style={ic.copyTxt}>{codeCopied ? '✓ Copied' : 'Copy'}</Text>
+                                <Ionicons name="copy-outline" size={14} color="#FFFFFF" />
+                                <Text style={ic.copyTxt}>{codeCopied ? 'Copied' : 'Copy'}</Text>
                             </TouchableOpacity>
                         </View>
                         <TouchableOpacity
@@ -140,7 +121,8 @@ export default function CoachProfileScreen() {
                             }}
                             accessibilityRole="button"
                         >
-                            <Text style={ic.shareTxt}>📋  Copy WhatsApp share message</Text>
+                            <Ionicons name="logo-whatsapp" size={16} color={palette.primary} />
+                            <Text style={ic.shareTxt}>Copy WhatsApp share message</Text>
                         </TouchableOpacity>
                     </View>
                 ) : (
@@ -150,17 +132,36 @@ export default function CoachProfileScreen() {
                 )}
             </View>
 
-            {/* ── Account ───────────────────────────────────────────────────── */}
+            <Text style={s.sectionLabel}>Overview</Text>
+            {dashLoading ? (
+                <View style={s.loadingCard}>
+                    <ActivityIndicator size="small" color={colors.accent} />
+                </View>
+            ) : (
+                <View style={s.statRow}>
+                    <StatTile
+                        value={dashboard?.total_clients ?? 0}
+                        label="Total clients"
+                        highlight={false}
+                        navy
+                    />
+                    <StatTile
+                        value={dashboard?.today_bookings?.length ?? 0}
+                        label="Today's sessions"
+                    />
+                    <StatTile
+                        value={dashboard?.pending_payments_count ?? 0}
+                        label="Pending payments"
+                        highlight={(dashboard?.pending_payments_count ?? 0) > 0}
+                    />
+                </View>
+            )}
+
             <Text style={s.sectionLabel}>Account</Text>
             <View style={s.infoCard}>
                 <InfoRow label="Name"  value={user?.name  ?? '—'} />
-                <InfoRow label="Email" value={user?.email ?? '—'} last />
-            </View>
-
-            {/* ── App ───────────────────────────────────────────────────────── */}
-            <Text style={s.sectionLabel}>App</Text>
-            <View style={s.infoCard}>
-                <InfoRow label="Role"    value="Coach" />
+                <InfoRow label="Email" value={user?.email ?? '—'} />
+                <InfoRow label="Role"  value="Coach" />
                 <InfoRow label="Version" value="FitnessGuruSG 1.0" last />
             </View>
 
@@ -174,6 +175,7 @@ export default function CoachProfileScreen() {
             >
                 <Text style={s.logoutText}>Sign out</Text>
             </TouchableOpacity>
+            </View>
 
         </ScrollView>
     );
@@ -182,20 +184,20 @@ export default function CoachProfileScreen() {
 // ── StatTile — overview metric tile ──────────────────────────────────────────
 
 function StatTile({
-    value, label, icon, highlight = false,
+    value, label, highlight = false, navy = false,
 }: {
     value: number;
     label: string;
-    icon: string;
     highlight?: boolean;
+    navy?: boolean;
 }) {
+    const fonts = useKitFonts();
     return (
-        <View style={[st.tile, highlight && st.tileHighlight]}>
-            <Text style={st.icon}>{icon}</Text>
-            <Text style={[st.value, highlight && st.valueHighlight]}>
+        <View style={[st.tile, highlight && st.tileHighlight, navy && st.tileNavy]}>
+            <Text style={[st.value, highlight && st.valueHighlight, navy && st.valueNavy, fontStyle(fonts.heading, '800')]}>
                 {value}
             </Text>
-            <Text style={st.label}>{label}</Text>
+            <Text style={[st.label, navy && st.labelNavy]}>{label}</Text>
         </View>
     );
 }
@@ -215,6 +217,9 @@ const st = StyleSheet.create({
         borderColor: colors.warningBorder,
         backgroundColor: colors.warningBg,
     },
+    tileNavy: { backgroundColor: palette.primary, borderWidth: 0 },
+    valueNavy: { color: '#FFFFFF' },
+    labelNavy: { color: 'rgba(255,255,255,0.75)' },
     icon:  { fontSize: 20, marginBottom: spacing.xs },
     value: {
         ...typography.h2,
@@ -241,28 +246,38 @@ const ic = StyleSheet.create({
         padding: spacing.base,
         gap: spacing.sm,
     },
+    kicker: {
+        fontSize: 11, fontWeight: '700', letterSpacing: 0.8, color: colors.textSecondary,
+    },
     hint: {
-        ...typography.label,
+        ...typography.caption,
         color: colors.textSecondary,
-        fontWeight: '400',
         lineHeight: 18,
     },
-    codeRow: {
+    codeBox: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: spacing.sm,
+        borderWidth: 1.5,
+        borderStyle: 'dashed',
+        borderColor: palette.teal,
+        backgroundColor: colors.accentSubtle,
+        borderRadius: radius.md,
+        padding: spacing.md,
     },
     code: {
-        ...typography.h2,
-        color: colors.accent,
-        letterSpacing: 4,
-        fontWeight: '800',
+        fontSize: 22,
+        color: palette.primary,
+        letterSpacing: 1,
         flex: 1,
     },
     copyBtn: {
-        backgroundColor: colors.accentSubtle,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: palette.teal,
         borderRadius: radius.md,
-        paddingHorizontal: spacing.base,
+        paddingHorizontal: spacing.md,
         paddingVertical: spacing.sm,
     },
     copyBtnSuccess: {
@@ -270,10 +285,13 @@ const ic = StyleSheet.create({
     },
     copyTxt: {
         ...typography.label,
-        color: colors.accent,
+        color: '#FFFFFF',
         fontWeight: '700',
     },
     shareBtn: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        gap: spacing.sm,
         backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
@@ -325,24 +343,20 @@ const ir = StyleSheet.create({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function getInitials(name: string): string {
-    const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-    return name.slice(0, 2).toUpperCase();
-}
-
-// ── Styles ────────────────────────────────────────────────────────────────────
-
 const s = StyleSheet.create({
     list:    { flex: 1, backgroundColor: colors.background },
-    content: {
-        paddingTop: spacing.xl,
-        paddingHorizontal: spacing.base,
-        paddingBottom: spacing.section,
+    content: { paddingBottom: spacing.section },
+    hero: {
+        backgroundColor: palette.primary,
+        paddingHorizontal: spacing.lg,
+        paddingBottom: spacing.xxl,
     },
-
-    // Hero
-    hero: { alignItems: 'center', marginBottom: spacing.xxl },
+    heroTitle: { fontSize: 28, color: '#FFFFFF', marginBottom: spacing.md },
+    identity: { flexDirection: 'row', alignItems: 'center', gap: spacing.base },
+    sheet: {
+        marginTop: -spacing.lg,
+        paddingHorizontal: spacing.base,
+    },
     avatar: {
         width: 80,
         height: 80,
@@ -361,21 +375,22 @@ const s = StyleSheet.create({
     },
     name: {
         ...typography.h2,
-        color: colors.textPrimary,
-        marginBottom: spacing.xs,
+        color: '#FFFFFF',
+        marginBottom: 2,
     },
     email: {
         ...typography.body,
-        color: colors.textSecondary,
+        color: 'rgba(255,255,255,0.75)',
         marginBottom: spacing.sm,
     },
     rolePill: {
-        backgroundColor: colors.accentSubtle,
+        alignSelf: 'flex-start',
+        backgroundColor: 'rgba(255,255,255,0.14)',
         borderRadius: radius.pill,
-        paddingHorizontal: spacing.base,
-        paddingVertical: spacing.xs,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 4,
     },
-    roleText: { ...typography.label, color: colors.accent },
+    roleText: { ...typography.label, color: '#FFFFFF' },
 
     // Section label
     sectionLabel: {

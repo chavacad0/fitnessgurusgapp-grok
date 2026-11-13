@@ -36,9 +36,9 @@ import { DaySummary } from '../types';
 
 // ─── Design tokens (matches BookingScreen palette) ────────────────────────────
 
-const NAVY    = '#1B3A4B';
+const NAVY    = '#183A4A';
 const GREEN   = '#16A34A';
-const BLUE    = '#4F46E5';
+const BLUE    = '#183A4A';
 const GRAY    = '#6B7280';
 const LIGHT   = '#F3F4F6';
 const WHITE   = '#FFFFFF';

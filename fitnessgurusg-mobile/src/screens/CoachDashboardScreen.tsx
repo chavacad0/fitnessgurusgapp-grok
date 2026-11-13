@@ -8,19 +8,16 @@
  *                               low_session_clients, expiring_clients,
  *                               pending_payments_count
  *   GET /api/clients/status   → hasCheckedInToday per client (action queue)
+ *   GET /api/coach/revenue-summary
  *
- * ─── Layout ───────────────────────────────────────────────────────────────────
- *   1. Greeting + date (navy, current type — kept as on screen)
- *   2. Business Overview — revenue, renewals, active plans, expiring soon
- *   3. Stat tiles — Total Clients, Need Follow-Up, Sessions Today
- *   4. Quick action — Assign Workout
- *   5. Renewals to follow up, plan mix, low sessions
- *   6. Missed check-ins today, and clients who already checked in
+ * Layout follows the approved coach dashboard:
+ *   Navy greeting (the logged-in coach's own name)
+ *   Business overview tiles
+ *   Assign Workout
+ *   Running low, today's sessions, missed check-ins, renewals
  *
- * Colours and fonts on this screen stay as they are. Later edits here
- * should only tidy spacing, card shape, alignment, headers, and empty states.
- * Need Follow-Up is a normal stat tile (amber tint only when the count is
- * above zero). It is not a red alert card.
+ * Need Follow-Up is a calm amber tile when the count is above zero.
+ * It is not a red alert card. Hide SGD, streaks, and holiday mode are not here.
  */
 
 import React, { useState, useCallback } from 'react';
@@ -37,20 +34,14 @@ import {
     ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radius, typography, shadows, palette } from '../theme/theme';
-import Card from '../components/Card';
+import { fontStyle, useKitFonts } from '../theme/fonts';
+import { useAuth } from '../context/AuthContext';
+import UserAvatar from '../components/UserAvatar';
 import { getDashboard, getClientStatus, getRevenueSummary, RevenueSummary } from '../services/apiClient';
 import { DashboardSummary, ClientStatusItem } from '../types';
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-// Colours already on this screen. Navy and the Assign Workout teal come from
-// the design kit, which uses these same values. RED stays the existing crimson
-// used for a low-session count — follow-up tiles do not use it.
-const RED = '#C0392B';
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getGreeting(): string {
     const h = new Date().getHours();
@@ -59,11 +50,12 @@ function getGreeting(): string {
     return 'Good evening';
 }
 
-function getTodayLong(): string {
+function getTodayShort(): string {
     try {
         return new Date().toLocaleDateString('en-SG', {
-            weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-        });
+            weekday: 'long', day: 'numeric', month: 'short',
+            timeZone: 'Asia/Singapore',
+        }).toUpperCase();
     } catch {
         return new Date().toLocaleDateString();
     }
@@ -74,15 +66,24 @@ function buildReminderMessage(name: string): string {
     return `Hi ${name}, just a gentle reminder to submit your daily check-in for today (${today}). Thank you!`;
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+function firstName(fullName: string | undefined): string {
+    const trimmed = fullName?.trim() ?? '';
+    if (!trimmed) return '';
+    return trimmed.split(/\s+/)[0];
+}
+
+function sessionLabel(status: 'booked' | 'completed' | 'cancelled'): { label: string; bg: string; color: string } {
+    if (status === 'completed') return { label: 'Done', bg: colors.badgeSuccessBg, color: colors.badgeSuccessText };
+    if (status === 'cancelled') return { label: 'Missed', bg: colors.surfaceMuted, color: colors.textSecondary };
+    return { label: 'Upcoming', bg: '#E7EEF2', color: palette.primary };
+}
 
 function StatTile({
     label, value, variant = 'default',
 }: {
     label: string; value: number | string; variant?: 'default' | 'navy' | 'urgent';
 }) {
-    // Follow-up uses the same tile shape as the other stats.
-    // Amber only when the count is above zero. No alert icon, no red card.
+    const fonts = useKitFonts();
     const bg       = variant === 'navy' ? palette.primary
                    : variant === 'urgent' ? colors.amberBg
                    : colors.surface;
@@ -98,10 +99,10 @@ function StatTile({
             ? { borderWidth: 1, borderColor: colors.amberBorder }
             : { borderWidth: 1, borderColor: colors.border };
     return (
-        <Card padding="none" style={[tile.wrap, { backgroundColor: bg }, border]}>
-            <Text style={[tile.value, { color: valColor }]}>{value}</Text>
-            <Text style={[tile.label, { color: lblColor }]} numberOfLines={2}>{label}</Text>
-        </Card>
+        <View style={[tile.wrap, { backgroundColor: bg }, border]}>
+            <Text style={[tile.value, { color: valColor }, fontStyle(fonts.heading, '800')]}>{value}</Text>
+            <Text style={[tile.label, { color: lblColor }, fontStyle(fonts.bodyMedium, '600')]} numberOfLines={2}>{label}</Text>
+        </View>
     );
 }
 
@@ -114,158 +115,123 @@ const tile = StyleSheet.create({
         paddingHorizontal: spacing.xs,
         alignItems: 'center',
         justifyContent: 'center',
+        ...shadows.card,
     },
-    value: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5, lineHeight: 34 },
-    label: { fontSize: 11, fontWeight: '600', textAlign: 'center', marginTop: 3, letterSpacing: 0.2 },
+    value: { fontSize: 26, letterSpacing: -0.5, lineHeight: 32 },
+    label: { fontSize: 11, textAlign: 'center', marginTop: 3 },
 });
 
-function ActionCard({
+function MissedRow({
     name, issueLabel, onActionPress, onCardPress,
 }: {
     name: string; issueLabel: string;
     onActionPress: () => void; onCardPress: () => void;
 }) {
+    const fonts = useKitFonts();
     return (
         <TouchableOpacity
             style={ac.card} onPress={onCardPress} activeOpacity={0.80}
             accessibilityRole="button" accessibilityLabel={`${name} — ${issueLabel}`}
         >
-            <View style={ac.strip} />
+            <UserAvatar name={name} size={40} bgColor="#FEF3C7" textColor={colors.amberText} />
             <View style={ac.body}>
-                <View style={ac.topRow}>
-                    <Text style={ac.name} numberOfLines={1}>{name}</Text>
-                    <Text style={ac.issueTag}>{issueLabel}</Text>
-                </View>
-                <TouchableOpacity
-                    style={ac.actionBtn} onPress={onActionPress} activeOpacity={0.82}
-                    accessibilityRole="button" accessibilityLabel="Send reminder"
-                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                >
-                    <Text style={ac.actionLabel}>WhatsApp reminder</Text>
-                </TouchableOpacity>
+                <Text style={[ac.name, fontStyle(fonts.bodySemibold, '600')]} numberOfLines={1}>{name}</Text>
+                <Text style={[ac.issueTag, fontStyle(fonts.body, '500')]} numberOfLines={2}>{issueLabel}</Text>
             </View>
+            <TouchableOpacity
+                style={ac.actionBtn} onPress={onActionPress} activeOpacity={0.82}
+                accessibilityRole="button" accessibilityLabel={`Remind ${name}`}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+                <Text style={[ac.actionLabel, fontStyle(fonts.bodySemibold, '600')]}>Remind</Text>
+            </TouchableOpacity>
         </TouchableOpacity>
     );
 }
 
 const ac = StyleSheet.create({
     card: {
-        flexDirection: 'row', backgroundColor: colors.surface,
+        flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+        backgroundColor: colors.surface,
         borderRadius: radius.card, borderWidth: 1, borderColor: colors.border,
-        marginBottom: spacing.sm, overflow: 'hidden', ...shadows.card,
+        marginBottom: spacing.sm, padding: spacing.base, ...shadows.card,
     },
-    strip: { width: 4, backgroundColor: colors.amberText },    // amber = follow-up attention, not emergency
-    body: { flex: 1, padding: spacing.base },
-    topRow: { marginBottom: spacing.sm },
-    name: { ...typography.h3, color: colors.textPrimary, marginBottom: 3 },
-    issueTag: { ...typography.caption, color: colors.amberText, fontWeight: '600' },
+    body: { flex: 1 },
+    name: { ...typography.label, color: colors.textPrimary, marginBottom: 2 },
+    issueTag: { ...typography.caption, color: colors.amberText },
     actionBtn: {
-        alignSelf: 'flex-start', backgroundColor: palette.primary,
-        borderRadius: radius.md, paddingVertical: 7, paddingHorizontal: spacing.md,
+        borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border,
+        backgroundColor: colors.surface,
+        paddingVertical: 6, paddingHorizontal: spacing.md,
     },
-    actionLabel: { fontSize: 13, fontWeight: '700', color: '#FFF', letterSpacing: 0.2 },
+    actionLabel: { fontSize: 13, color: palette.primary },
 });
 
-function BookingRow({
-    clientName, startTime, endTime, status,
+function EmptyPanel({
+    icon, title, subtitle,
 }: {
-    clientName: string; startTime: string; endTime: string;
-    status: 'booked' | 'completed' | 'cancelled';
+    icon: React.ComponentProps<typeof Ionicons>['name'];
+    title: string;
+    subtitle: string;
 }) {
-    const statusColor = status === 'completed' ? '#059669' : status === 'cancelled' ? RED : palette.primary;
-    const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+    const fonts = useKitFonts();
     return (
-        <View style={br.row}>
-            <View style={br.avatar}>
-                <Text style={br.avatarText}>{clientName.charAt(0).toUpperCase()}</Text>
+        <View style={s.emptyCard}>
+            <View style={s.emptyIcon}>
+                <Ionicons name={icon} size={22} color={palette.teal} />
             </View>
-            <View style={br.info}>
-                <Text style={br.clientName} numberOfLines={1}>{clientName}</Text>
-                <Text style={br.time}>{startTime} – {endTime}</Text>
-            </View>
-            <View style={[br.badge, { backgroundColor: statusColor + '22' }]}>
-                <Text style={[br.badgeText, { color: statusColor }]}>{statusLabel}</Text>
-            </View>
+            <Text style={[s.emptyTitle, fontStyle(fonts.bodySemibold, '600')]}>{title}</Text>
+            <Text style={[s.emptySub, fontStyle(fonts.body, '400')]}>{subtitle}</Text>
         </View>
     );
 }
 
-const br = StyleSheet.create({
-    row: {
-        flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-        paddingVertical: spacing.md, paddingHorizontal: spacing.base,
-    },
-    avatar: {
-        width: 36, height: 36, borderRadius: 18,
-        backgroundColor: colors.accentSubtle, alignItems: 'center', justifyContent: 'center',
-    },
-    avatarText: { fontSize: 14, fontWeight: '700', color: colors.accent },
-    info: { flex: 1 },
-    clientName: { ...typography.label, color: colors.textPrimary },
-    time: { ...typography.caption, color: colors.textSecondary },
-    badge: {
-        borderRadius: radius.pill, paddingVertical: 3, paddingHorizontal: spacing.sm,
-    },
-    badgeText: { fontSize: 11, fontWeight: '700' },
-});
-
-function SectionLabel({ title, count, urgent }: { title: string; count: number; urgent?: boolean }) {
+function SectionLabel({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) {
+    const fonts = useKitFonts();
     return (
         <View style={sl.row}>
-            <Text style={sl.title}>{title.toUpperCase()}</Text>
-            <View style={[sl.pill, urgent && { backgroundColor: colors.badgeWarningBg, borderWidth: 1, borderColor: colors.amberBorder }]}>
-                <Text style={[sl.count, urgent && { color: colors.amberText }]}>{count}</Text>
-            </View>
+            <Text style={[sl.title, fontStyle(fonts.bodySemibold, '700')]}>{title}</Text>
+            {action && onAction ? (
+                <TouchableOpacity onPress={onAction} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={[sl.action, fontStyle(fonts.bodySemibold, '600')]}>{action}</Text>
+                </TouchableOpacity>
+            ) : null}
         </View>
     );
 }
 
 const sl = StyleSheet.create({
-    row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
-    title: { fontSize: 11, fontWeight: '800', letterSpacing: 1.2, color: colors.textSecondary, flex: 1 },
-    pill: {
-        minWidth: 22, height: 22, borderRadius: radius.pill,
-        backgroundColor: colors.accentSubtle, alignItems: 'center', justifyContent: 'center',
-        paddingHorizontal: spacing.sm,
+    row: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
+    title: {
+        fontSize: 11, letterSpacing: 1.1, color: colors.textSecondary, flex: 1,
     },
-    count: { fontSize: 11, fontWeight: '800', color: colors.accent },
+    action: { fontSize: 13, color: palette.teal },
 });
 
-// ─── Main Screen ──────────────────────────────────────────────────────────────
-
 export default function CoachDashboardScreen({ navigation }: any) {
+    const insets = useSafeAreaInsets();
+    const fonts = useKitFonts();
+    const { user } = useAuth();
     const [loading,    setLoading]    = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [error,      setError]      = useState<string | null>(null);
 
-    // Real API data
     const [dashboard,    setDashboard]    = useState<DashboardSummary | null>(null);
     const [clientStatus, setClientStatus] = useState<ClientStatusItem[]>([]);
     const [revenue,      setRevenue]      = useState<RevenueSummary | null>(null);
 
-    // ── Data fetch ────────────────────────────────────────────────────────────
-
     const loadData = useCallback(async () => {
         try {
             setError(null);
-            console.log('[Dashboard] fetching real data from API...');
-
-            // Parallel fetch: dashboard summary + client status + revenue
             const [dashResp, statusResp, revResp] = await Promise.all([
                 getDashboard(),
                 getClientStatus(),
                 getRevenueSummary(),
             ]);
-
-            console.log('[Dashboard] dashboard response:', JSON.stringify(dashResp, null, 2));
-            console.log('[Dashboard] client status count:', statusResp.clients?.length ?? 0);
-            console.log('[Dashboard] revenue:', revResp.actualRevenue);
-
             setDashboard(dashResp);
             setClientStatus(statusResp.clients ?? []);
             setRevenue(revResp);
         } catch (err: any) {
-            console.error('[Dashboard] fetch error:', err.message);
             setError(err.message ?? 'Failed to load dashboard.');
         } finally {
             setLoading(false);
@@ -283,17 +249,11 @@ export default function CoachDashboardScreen({ navigation }: any) {
         loadData();
     };
 
-    // ── Derived values from real data ─────────────────────────────────────────
-
     const totalClients    = dashboard?.total_clients ?? clientStatus.length;
     const todayBookings   = dashboard?.today_bookings ?? [];
     const lowSessions     = dashboard?.low_session_clients ?? [];
     const pendingPayments = dashboard?.pending_payments_count ?? 0;
 
-    // Follow-Up = payment/session renewal follow-up.
-    // Mirrors getRenewalBadge() logic on the raw ClientStatusItem shape:
-    //   plan expired | 0 sessions | <= 2 sessions | expiry within 30 days
-    // No-plan clients are NOT counted here (they belong in No Plan filter).
     const RENEWAL_LOW   = 2;
     const RENEWAL_DAYS  = 30;
     const isRenewalNeeded = (c: ClientStatusItem): boolean => {
@@ -310,58 +270,43 @@ export default function CoachDashboardScreen({ navigation }: any) {
         return false;
     };
     const followUpCount = clientStatus.filter(isRenewalNeeded).length;
-
-    // "All Good" section — clients who checked in today
     const doneClients   = clientStatus.filter(c => c.hasCheckedInToday);
-
-    // "Missed Check-Ins Today" section — clients who have NOT checked in.
-    // Separate from Follow-Up (which is payment/renewal) — same source data,
-    // different meaning.
     const missedClients = clientStatus.filter(c => !c.hasCheckedInToday);
     const missedCount   = missedClients.length;
 
-    // ── Action handlers ───────────────────────────────────────────────────────
+    const coachFirst = firstName(user?.name);
+    const greetingLine = coachFirst ? `${getGreeting()}, ${coachFirst}` : getGreeting();
+    const needsAction = followUpCount > 0 || missedCount > 0 || lowSessions.length > 0;
+    const subtitle = !needsAction
+        ? 'All good today. Nothing needs action.'
+        : followUpCount > 0
+            ? `${followUpCount} client${followUpCount === 1 ? '' : 's'} need you today.`
+            : missedCount > 0
+                ? `${missedCount} client${missedCount === 1 ? '' : 's'} haven't checked in today.`
+                : `${lowSessions.length} plan${lowSessions.length === 1 ? '' : 's'} running low.`;
 
     const sendReminder = (name: string) => {
         Share.share({ message: buildReminderMessage(name) }).catch(() => {});
     };
 
-    // ── Navigation handlers ───────────────────────────────────────────────────
-
-    /** Total Clients tile → Clients tab, All filter */
     const goToAllClients = () =>
         navigation.navigate('Clients', { initialFilter: 'all' });
-
-    /** Need Follow-Up tile → Clients tab, Follow-Up (payment/renewal) filter */
     const goToFollowUp = () =>
         navigation.navigate('Clients', { initialFilter: 'followUp' });
-
-    /** Sessions Today tile → Bookings tab */
     const goToBookings = () =>
         navigation.navigate('Bookings');
-
-    /** Active Plans tile → Clients tab, Active Plan filter (plan_status === active | expiring_soon) */
     const goToActivePlans = () =>
         navigation.navigate('Clients', { initialFilter: 'activePlan' });
-
-    /** Expiring Soon tile → Clients tab, Renewals filter */
     const goToExpiringSoon = () =>
         navigation.navigate('Clients', { initialFilter: 'renewals' });
-
-    /** Revenue This Month — no detail screen yet */
     const showRevenuePlaceholder = () =>
         Alert.alert('Revenue Details', 'Revenue details screen coming next.');
-
-    /** Projected Renewals → Clients tab, Renewals filter */
     const showRenewalPlaceholder = () =>
         navigation.navigate('Clients', { initialFilter: 'renewals' });
-
-    /** Assign Workout quick action → Clients tab (coach selects a client, then
-     * uses the existing Assign Workout button in Client Details) */
     const goToClientsForWorkout = () =>
         navigation.navigate('Clients');
-
-    // ── Loading state ─────────────────────────────────────────────────────────
+    const goToInsights = () =>
+        navigation.navigate('Insights');
 
     if (loading) {
         return (
@@ -372,12 +317,10 @@ export default function CoachDashboardScreen({ navigation }: any) {
         );
     }
 
-    // ── Error state ───────────────────────────────────────────────────────────
-
     if (error && !dashboard) {
         return (
             <View style={[s.screen, s.centered]}>
-                <Text style={s.errorText}>⚠ {error}</Text>
+                <Text style={s.errorText}>{error}</Text>
                 <TouchableOpacity style={s.retryBtn} onPress={() => { setLoading(true); loadData(); }}>
                     <Text style={s.retryLabel}>Retry</Text>
                 </TouchableOpacity>
@@ -385,381 +328,364 @@ export default function CoachDashboardScreen({ navigation }: any) {
         );
     }
 
-    // ── Main render ───────────────────────────────────────────────────────────
+    const expiring = revenue?.expiringSoon ?? 0;
 
     return (
-        <ScrollView
-            style={s.screen}
-            contentContainerStyle={[s.content, { paddingTop: spacing.lg }]}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={palette.primary} />
-            }
-        >
-            <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
-
-            {/* ── 1. GREETING ──────────────────────────────────────────────── */}
-            <View style={s.greetingBlock}>
-                <Text style={s.greeting}>{getGreeting()}, Coach</Text>
-                <Text style={s.date}>{getTodayLong()}</Text>
-                {pendingPayments > 0 && (
-                    <View style={s.pendingBadge}>
-                        <Text style={s.pendingText}>
-                            {pendingPayments} payment{pendingPayments > 1 ? 's' : ''} to collect — tap Bookings to confirm
-                        </Text>
-                    </View>
-                )}
-            </View>
-
-            {/* ── 2. BUSINESS OVERVIEW ─────────────────────────────────────── */}
-            <View style={s.section}>
-                <SectionLabel title="Business Overview" count={revenue?.activePlans ?? 0} />
-
-                {/* Revenue metric tiles — row 1 */}
-                <View style={rv.tilesRow}>
-                    {/* Revenue This Month — placeholder alert (no detail screen yet) */}
-                    <TouchableOpacity
-                        onPress={showRevenuePlaceholder}
-                        activeOpacity={0.78}
-                        style={{ flex: 1 }}
-                        accessibilityRole="button"
-                        accessibilityLabel="Revenue this month"
-                    >
-                        <View style={[rv.tile, rv.tileGreen]}>
-                            <Text style={[rv.tileCurrency, { color: '#15803D' }]}>SGD</Text>
-                            <Text style={[rv.tileAmount, { color: '#15803D' }]}>
-                                {(revenue?.actualRevenue ?? 0).toLocaleString()}
-                            </Text>
-                            <Text style={[rv.tileLabel, { color: '#166534' }]}>Revenue This Month</Text>
-                        </View>
-                    </TouchableOpacity>
-
-                    {/* Projected Renewals — placeholder alert (renewal list is below on same screen) */}
-                    <TouchableOpacity
-                        onPress={showRenewalPlaceholder}
-                        activeOpacity={0.78}
-                        style={{ flex: 1 }}
-                        accessibilityRole="button"
-                        accessibilityLabel="Projected renewals"
-                    >
-                        <View style={[rv.tile, rv.tileNavy]}>
-                            <Text style={[rv.tileCurrency, { color: 'rgba(255,255,255,0.65)' }]}>SGD</Text>
-                            <Text style={[rv.tileAmount, { color: '#fff' }]}>
-                                {(revenue?.projectedRevenue ?? 0).toLocaleString()}
-                            </Text>
-                            <Text style={[rv.tileLabel, { color: 'rgba(255,255,255,0.7)' }]}>Projected Renewals</Text>
-                        </View>
-                    </TouchableOpacity>
+        <View style={s.screen}>
+            <StatusBar barStyle="light-content" backgroundColor={palette.primary} />
+            <ScrollView
+                contentContainerStyle={s.content}
+                showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FFFFFF" />
+                }
+            >
+                <View style={[s.hero, { paddingTop: insets.top + spacing.md }]}>
+                    <Text style={[s.date, fontStyle(fonts.bodySemibold, '600')]}>{getTodayShort()}</Text>
+                    <Text style={[s.greeting, fontStyle(fonts.heading, '700')]}>{greetingLine}</Text>
+                    <Text style={[s.heroSub, fontStyle(fonts.body, '400')]}>{subtitle}</Text>
                 </View>
 
-                {/* Revenue metric tiles — row 2 */}
-                <View style={[rv.tilesRow, { marginTop: spacing.sm }]}>
-                    {/* Active Plans → Clients tab (active filter) */}
-                    <TouchableOpacity
-                        onPress={goToActivePlans}
-                        activeOpacity={0.78}
-                        style={{ flex: 1 }}
-                        accessibilityRole="button"
-                        accessibilityLabel="View active plan clients"
-                    >
-                        <View style={[rv.tile, rv.tileMuted]}>
-                            <Text style={rv.tileAmount}>{revenue?.activePlans ?? 0}</Text>
-                            <Text style={rv.tileLabel}>Active Plans</Text>
+                <View style={s.sheet}>
+                    {pendingPayments > 0 && (
+                        <View style={s.pendingBadge}>
+                            <Text style={s.pendingText}>
+                                {pendingPayments} payment{pendingPayments > 1 ? 's' : ''} to collect — tap Bookings to confirm
+                            </Text>
                         </View>
-                    </TouchableOpacity>
+                    )}
 
-                    {/* Expiring Soon → Clients tab (all filter — TODO: add expiring filter) */}
-                    {(() => {
-                        const expiring = revenue?.expiringSoon ?? 0;
-                        const isAmber  = expiring > 0;
-                        return (
-                            <TouchableOpacity
-                                onPress={goToExpiringSoon}
-                                activeOpacity={0.78}
-                                style={{ flex: 1 }}
-                                accessibilityRole="button"
-                                accessibilityLabel="View expiring plan clients"
-                            >
-                                <View style={[rv.tile, isAmber ? rv.tileAmber : rv.tileMuted]}>
-                                    <Text style={[rv.tileAmount, { color: isAmber ? '#92400E' : colors.textPrimary }]}>
-                                        {expiring}
-                                    </Text>
-                                    <Text style={[rv.tileLabel, { color: isAmber ? '#92400E' : colors.textSecondary }]}>
-                                        Expiring Soon
-                                    </Text>
+                    <SectionLabel title="BUSINESS OVERVIEW" action="Details" onAction={goToInsights} />
+
+                    <View style={rv.tilesRow}>
+                        <TouchableOpacity
+                            onPress={showRevenuePlaceholder}
+                            activeOpacity={0.78}
+                            style={{ flex: 1 }}
+                            accessibilityRole="button"
+                            accessibilityLabel="Revenue this month"
+                        >
+                            <View style={[rv.tile, rv.tileGreen]}>
+                                <Text style={[rv.tileCurrency, { color: '#15803D' }]}>SGD</Text>
+                                <Text style={[rv.tileAmount, { color: '#15803D' }, fontStyle(fonts.heading, '800')]}>
+                                    {(revenue?.actualRevenue ?? 0).toLocaleString()}
+                                </Text>
+                                <Text style={[rv.tileLabel, { color: '#166534' }]}>Revenue this month</Text>
+                            </View>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={showRenewalPlaceholder}
+                            activeOpacity={0.78}
+                            style={{ flex: 1 }}
+                            accessibilityRole="button"
+                            accessibilityLabel="Projected renewals"
+                        >
+                            <View style={[rv.tile, rv.tileNavy]}>
+                                <Text style={[rv.tileCurrency, { color: 'rgba(255,255,255,0.65)' }]}>SGD</Text>
+                                <Text style={[rv.tileAmount, { color: '#fff' }, fontStyle(fonts.heading, '800')]}>
+                                    {(revenue?.projectedRevenue ?? 0).toLocaleString()}
+                                </Text>
+                                <Text style={[rv.tileLabel, { color: 'rgba(255,255,255,0.7)' }]}>Projected renewals</Text>
+                            </View>
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={[rv.tilesRow, { marginTop: spacing.sm }]}>
+                        <TouchableOpacity onPress={goToActivePlans} activeOpacity={0.78} style={{ flex: 1 }} accessibilityRole="button">
+                            <View style={[rv.tile, rv.tileMuted]}>
+                                <Text style={[rv.tileAmount, fontStyle(fonts.heading, '800')]}>{revenue?.activePlans ?? 0}</Text>
+                                <Text style={rv.tileLabel}>Active plans</Text>
+                            </View>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={goToExpiringSoon} activeOpacity={0.78} style={{ flex: 1 }} accessibilityRole="button">
+                            <View style={[rv.tile, expiring > 0 ? rv.tileAmber : rv.tileMuted]}>
+                                <Text style={[rv.tileAmount, { color: expiring > 0 ? '#92400E' : colors.textPrimary }, fontStyle(fonts.heading, '800')]}>
+                                    {expiring}
+                                </Text>
+                                <Text style={[rv.tileLabel, { color: expiring > 0 ? '#92400E' : colors.textSecondary }]}>
+                                    Expiring soon
+                                </Text>
+                            </View>
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={[s.statsRow, { marginTop: spacing.sm }]}>
+                        <TouchableOpacity onPress={goToAllClients} activeOpacity={0.75} style={{ flex: 1 }} accessibilityRole="button">
+                            <StatTile label="Total clients" value={totalClients} variant="navy" />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={goToFollowUp} activeOpacity={0.75} style={{ flex: 1 }} accessibilityRole="button">
+                            <StatTile label="Need follow-up" value={followUpCount} variant={followUpCount > 0 ? 'urgent' : 'default'} />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={goToBookings} activeOpacity={0.75} style={{ flex: 1 }} accessibilityRole="button">
+                            <StatTile label="Sessions today" value={todayBookings.length} />
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={s.section}>
+                        <SectionLabel title="QUICK ACTIONS" />
+                        <TouchableOpacity
+                            style={qa.actionBtn}
+                            onPress={goToClientsForWorkout}
+                            activeOpacity={0.82}
+                            accessibilityRole="button"
+                            accessibilityLabel="Assign workout — choose a client"
+                        >
+                            <View style={qa.iconWrap}>
+                                <Ionicons name="barbell-outline" size={20} color="#FFFFFF" />
+                            </View>
+                            <View style={qa.textBlock}>
+                                <Text style={[qa.actionLabel, fontStyle(fonts.bodySemibold, '700')]}>Assign Workout</Text>
+                                <Text style={qa.actionSub}>Choose a client to get started</Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.55)" />
+                        </TouchableOpacity>
+                    </View>
+
+                    {lowSessions.length > 0 && (
+                        <View style={s.section}>
+                            <SectionLabel title="RUNNING LOW · COLLECT PAYMENT" />
+                            {lowSessions.map(item => (
+                                <View key={item.client_id} style={s.alertRow}>
+                                    <UserAvatar name={item.client_name} size={40} />
+                                    <View style={s.alertLeft}>
+                                        <Text style={s.alertName}>{item.client_name}</Text>
+                                        <Text style={s.alertSub}>Expires {item.expiry_date}</Text>
+                                    </View>
+                                    <View style={s.sessionsBadge}>
+                                        <Text style={s.sessionsBadgeNum}>{item.sessions_remaining} left</Text>
+                                    </View>
                                 </View>
-                            </TouchableOpacity>
-                        );
-                    })()}
-                </View>
-            </View>
+                            ))}
+                        </View>
+                    )}
 
-            {/* ── 3. STAT TILES ────────────────────────────────────────────── */}
-            <View style={s.statsRow}>
-                {/* Total Clients → Clients (All) */}
-                <TouchableOpacity
-                    onPress={goToAllClients}
-                    activeOpacity={0.75}
-                    style={{ flex: 1 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="View all clients"
-                >
-                    <StatTile label="Total Clients" value={totalClients} variant="navy" />
-                </TouchableOpacity>
-
-                {/* Need Follow-Up → Clients (Follow-Up = payment/renewal filter) */}
-                <TouchableOpacity
-                    onPress={goToFollowUp}
-                    activeOpacity={0.75}
-                    style={{ flex: 1 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="View clients needing follow-up"
-                >
-                    <StatTile label="Need Follow-Up" value={followUpCount} variant={followUpCount > 0 ? 'urgent' : 'default'} />
-                </TouchableOpacity>
-
-                {/* Sessions Today → Bookings tab */}
-                <TouchableOpacity
-                    onPress={goToBookings}
-                    activeOpacity={0.75}
-                    style={{ flex: 1 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="View today's sessions"
-                >
-                    <StatTile label="Sessions Today" value={todayBookings.length} variant="default" />
-                </TouchableOpacity>
-            </View>
-
-            {/* ── 4. QUICK ACTIONS ──────────────────────────────────────────── */}
-            <View style={s.section}>
-                <View style={qa.header}>
-                    <Text style={qa.sectionTitle}>QUICK ACTIONS</Text>
-                </View>
-
-                {/* Assign Workout — coach picks the client on the next screen */}
-                <TouchableOpacity
-                    style={qa.actionBtn}
-                    onPress={goToClientsForWorkout}
-                    activeOpacity={0.82}
-                    accessibilityRole="button"
-                    accessibilityLabel="Assign workout — choose a client"
-                >
-                    <View style={qa.iconWrap}>
-                        <Ionicons name="barbell-outline" size={20} color="#FFFFFF" />
-                    </View>
-                    <View style={qa.textBlock}>
-                        <Text style={qa.actionLabel}>Assign Workout</Text>
-                        <Text style={qa.actionSub}>Choose a client to get started</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.55)" />
-                </TouchableOpacity>
-            </View>
-
-            <View style={s.section}>
-                <Text style={rv.subLabel}>RENEWALS TO FOLLOW UP</Text>
-
-                {(revenue?.expiringClients?.length ?? 0) === 0 ? (
-                    <Card padding="none" style={rv.emptyRenewCard}>
-                        <Ionicons name="calendar-outline" size={22} color={colors.textSecondary} />
-                        <Text style={rv.emptyRenewText}>No renewals due in the next 30 days.</Text>
-                    </Card>
-                ) : (
-                    <View style={s.listCard}>
-                        {revenue!.expiringClients.map((c, i) => {
-                            const urgent   = c.expiresInDays <= 7;
-                            const soon     = c.expiresInDays <= 14;
-                            const dayColor = urgent ? RED : soon ? '#92400E' : colors.textSecondary;
-                            return (
-                                <View key={c.clientId}>
-                                    <View style={rv.renewRow}>
-                                        <View style={[rv.renewAvatar, urgent && { backgroundColor: '#FEE2E2' }]}>
-                                            <Text style={[rv.renewAvatarText, urgent && { color: RED }]}>
-                                                {c.clientName.charAt(0).toUpperCase()}
-                                            </Text>
+                    <View style={s.section}>
+                        <SectionLabel title="TODAY'S SESSIONS" />
+                        {todayBookings.length === 0 ? (
+                            <EmptyPanel
+                                icon="time-outline"
+                                title="No sessions today"
+                                subtitle="Open a slot so clients can book."
+                            />
+                        ) : (
+                            <View style={s.listCard}>
+                                {todayBookings.map((b, i) => {
+                                    const pill = sessionLabel(b.status);
+                                    return (
+                                        <View key={b.booking_id}>
+                                            <TouchableOpacity style={s.sessionRow} onPress={goToBookings} activeOpacity={0.8}>
+                                                <UserAvatar name={b.client_name} size={40} />
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={s.alertName} numberOfLines={1}>{b.client_name}</Text>
+                                                    <Text style={s.alertSub}>{b.start_time} – {b.end_time}</Text>
+                                                </View>
+                                                <View style={[s.statusPill, { backgroundColor: pill.bg }]}>
+                                                    <Text style={[s.statusPillText, { color: pill.color }]}>{pill.label}</Text>
+                                                </View>
+                                            </TouchableOpacity>
+                                            {i < todayBookings.length - 1 && <View style={s.divider} />}
                                         </View>
-                                        <View style={rv.renewInfo}>
-                                            <Text style={rv.renewName} numberOfLines={1}>{c.clientName}</Text>
-                                            <Text style={[rv.renewSub, { color: dayColor }]}>
-                                                {c.planName} · expires in {c.expiresInDays} day{c.expiresInDays !== 1 ? 's' : ''}
-                                            </Text>
-                                        </View>
-                                        {c.renewalValue > 0 && (
-                                            <View style={rv.renewValueBadge}>
-                                                <Text style={rv.renewValueLabel}>SGD</Text>
-                                                <Text style={rv.renewValueText}>
-                                                    {c.renewalValue.toLocaleString()}
-                                                </Text>
-                                                <Text style={rv.renewValueSub}>expected</Text>
+                                    );
+                                })}
+                            </View>
+                        )}
+                    </View>
+
+                    <View style={s.section}>
+                        <SectionLabel title="MISSED CHECK-INS TODAY" />
+                        {missedCount === 0 ? (
+                            <EmptyPanel
+                                icon="checkmark-circle-outline"
+                                title="Everyone has checked in"
+                                subtitle="No action needed today."
+                            />
+                        ) : (
+                            missedClients.map(client => (
+                                <MissedRow
+                                    key={client.clientId}
+                                    name={client.clientName}
+                                    issueLabel={
+                                        client.lastCheckInDate
+                                            ? `Last seen ${client.lastCheckInDate} — no check-in today`
+                                            : 'Never checked in — send them a link'
+                                    }
+                                    onActionPress={() => sendReminder(client.clientName)}
+                                    onCardPress={goToFollowUp}
+                                />
+                            ))
+                        )}
+                    </View>
+
+                    <View style={s.section}>
+                        <SectionLabel title="RENEWALS TO FOLLOW UP" />
+                        {(revenue?.expiringClients?.length ?? 0) === 0 ? (
+                            <EmptyPanel
+                                icon="calendar-outline"
+                                title="No renewals due"
+                                subtitle="Nothing in the next 30 days."
+                            />
+                        ) : (
+                            <View style={s.listCard}>
+                                {revenue!.expiringClients.map((c, i) => {
+                                    const expired = c.expiresInDays < 0;
+                                    const soon = c.expiresInDays <= 14;
+                                    const dayColor = expired ? colors.criticalText : soon ? colors.amberText : colors.textSecondary;
+                                    return (
+                                        <View key={c.clientId}>
+                                            <View style={rv.renewRow}>
+                                                <UserAvatar
+                                                    name={c.clientName}
+                                                    size={40}
+                                                    bgColor={expired ? colors.criticalBg : '#FEF3C7'}
+                                                    textColor={expired ? colors.criticalText : colors.amberText}
+                                                />
+                                                <View style={rv.renewInfo}>
+                                                    <Text style={rv.renewName} numberOfLines={1}>{c.clientName}</Text>
+                                                    <Text style={[rv.renewSub, { color: dayColor }]}>
+                                                        {c.planName} · expires in {c.expiresInDays} day{c.expiresInDays !== 1 ? 's' : ''}
+                                                    </Text>
+                                                </View>
+                                                {c.renewalValue > 0 && (
+                                                    <View style={rv.renewValueBadge}>
+                                                        <Text style={rv.renewValueLabel}>SGD</Text>
+                                                        <Text style={rv.renewValueText}>{c.renewalValue.toLocaleString()}</Text>
+                                                        <Text style={rv.renewValueSub}>expected</Text>
+                                                    </View>
+                                                )}
                                             </View>
-                                        )}
-                                    </View>
-                                    {i < revenue!.expiringClients.length - 1 && (
-                                        <View style={s.divider} />
-                                    )}
-                                </View>
-                            );
-                        })}
-                    </View>
-                )}
-            </View>
-
-            {/* ── 5. PLAN MIX ──────────────────────────────────────────────────── */}
-            {(revenue?.planBreakdown?.length ?? 0) > 0 && (
-                <View style={s.section}>
-                    <Text style={rv.subLabel}>PLAN MIX</Text>
-                    <View style={s.listCard}>
-                        {revenue!.planBreakdown.map((p, i) => (
-                            <View key={p.planName}>
-                                <View style={rv.breakRow}>
-                                    <Text style={rv.breakName} numberOfLines={1}>{p.planName}</Text>
-                                    <View style={rv.breakRight}>
-                                        <Text style={rv.breakCount}>
-                                            {p.count} client{p.count !== 1 ? 's' : ''}
-                                        </Text>
-                                        <View style={rv.breakPricePill}>
-                                            <Text style={rv.breakPrice}>
-                                                SGD {p.revenue.toLocaleString()}
-                                            </Text>
+                                            {i < revenue!.expiringClients.length - 1 && <View style={s.divider} />}
                                         </View>
-                                    </View>
-                                </View>
-                                {i < revenue!.planBreakdown.length - 1 && (
-                                    <View style={s.divider} />
-                                )}
+                                    );
+                                })}
                             </View>
-                        ))}
+                        )}
                     </View>
-                </View>
-            )}
 
-            {/* ── 6. LOW SESSION ALERTS ──────────────────────────────────── */}
-            {lowSessions.length > 0 && (
-                <View style={s.section}>
-                    <SectionLabel title="Running Low — Collect Payment" count={lowSessions.length} urgent />
-                    {lowSessions.map(item => (
-                        <View key={item.client_id} style={s.alertRow}>
-                            <View style={s.alertLeft}>
-                                <Text style={s.alertName}>{item.client_name}</Text>
-                                <Text style={s.alertSub}>Expires {item.expiry_date}</Text>
-                            </View>
-                            <View style={s.sessionsBadge}>
-                                <Text style={s.sessionsBadgeNum}>{item.sessions_remaining}</Text>
-                                <Text style={s.sessionsBadgeLabel}>left</Text>
+                    {(revenue?.planBreakdown?.length ?? 0) > 0 && (
+                        <View style={s.section}>
+                            <SectionLabel title="PLAN MIX" />
+                            <View style={s.listCard}>
+                                {revenue!.planBreakdown.map((p, i) => (
+                                    <View key={p.planName}>
+                                        <View style={rv.breakRow}>
+                                            <Text style={rv.breakName} numberOfLines={1}>{p.planName}</Text>
+                                            <View style={rv.breakRight}>
+                                                <Text style={rv.breakCount}>
+                                                    {p.count} client{p.count !== 1 ? 's' : ''}
+                                                </Text>
+                                                <View style={rv.breakPricePill}>
+                                                    <Text style={rv.breakPrice}>SGD {p.revenue.toLocaleString()}</Text>
+                                                </View>
+                                            </View>
+                                        </View>
+                                        {i < revenue!.planBreakdown.length - 1 && <View style={s.divider} />}
+                                    </View>
+                                ))}
                             </View>
                         </View>
-                    ))}
-                </View>
-            )}
+                    )}
 
-            {/* ── 7. MISSED CHECK-INS TODAY ──────────────────────────────── */}
-            <View style={s.section}>
-                <SectionLabel title="Missed Check-Ins Today" count={missedCount} urgent={missedCount > 0} />
-                {missedCount === 0 ? (
-                    <View style={s.emptyCard}>
-                        <Ionicons name="checkmark-circle-outline" size={18} color={colors.badgeSuccessText} />
-                        <Text style={s.emptyText}>Everyone has checked in — no action needed</Text>
-                    </View>
-                ) : (
-                    missedClients.map(client => (
-                        <ActionCard
-                            key={client.clientId}
-                            name={client.clientName}
-                            issueLabel={
-                                client.lastCheckInDate
-                                    ? `Last seen ${client.lastCheckInDate} — no check-in today`
-                                    : 'Never checked in — send them a link'
-                            }
-                            onActionPress={() => sendReminder(client.clientName)}
-                            onCardPress={goToFollowUp}
-                        />
-                    ))
-                )}
-            </View>
-
-            {/* ── 9. ALL GOOD TODAY ─────────────────────────────────────────── */}
-            {doneClients.length > 0 && (
-                <View style={s.section}>
-                    <SectionLabel title="All Good Today" count={doneClients.length} />
-                    <View style={s.listCard}>
-                        {doneClients.map((c, i) => (
-                            <View key={c.clientId}>
-                                <View style={s.doneRow}>
-                                    <View style={s.doneAvatar}>
-                                        <Text style={s.doneAvatarText}>{c.clientName.charAt(0).toUpperCase()}</Text>
+                    {doneClients.length > 0 && (
+                        <View style={s.section}>
+                            <SectionLabel title="CHECKED IN TODAY" />
+                            <View style={s.listCard}>
+                                {doneClients.map((c, i) => (
+                                    <View key={c.clientId}>
+                                        <View style={s.doneRow}>
+                                            <UserAvatar name={c.clientName} size={36} />
+                                            <Text style={s.doneName} numberOfLines={1}>{c.clientName}</Text>
+                                            <View style={s.donePill}>
+                                                <Text style={s.donePillText}>Done</Text>
+                                            </View>
+                                        </View>
+                                        {i < doneClients.length - 1 && <View style={s.divider} />}
                                     </View>
-                                    <Text style={s.doneName} numberOfLines={1}>{c.clientName}</Text>
-                                    <View style={s.donePill}>
-                                        <Text style={s.donePillText}>Done</Text>
-                                    </View>
-                                </View>
-                                {i < doneClients.length - 1 && <View style={s.divider} />}
+                                ))}
                             </View>
-                        ))}
-                    </View>
+                        </View>
+                    )}
                 </View>
-            )}
-
-            <View style={{ height: spacing.xxl }} />
-        </ScrollView>
+            </ScrollView>
+        </View>
     );
 }
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
     screen: { flex: 1, backgroundColor: colors.background },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
-    content: { flexGrow: 1, paddingHorizontal: spacing.xl },
+    content: { flexGrow: 1, paddingBottom: spacing.xxl },
 
     loadingText: { ...typography.body, color: colors.textSecondary, marginTop: spacing.md },
-
-    errorText: { ...typography.body, color: RED, textAlign: 'center', marginBottom: spacing.md },
+    errorText: { ...typography.body, color: colors.criticalText, textAlign: 'center', marginBottom: spacing.md },
     retryBtn:  { backgroundColor: palette.primary, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.xl },
-    retryLabel: { ...typography.label, color: '#FFF', fontWeight: '700' },
+    retryLabel: { ...typography.label, color: '#FFF' },
 
-    greetingBlock: { marginBottom: spacing.xl },
-    greeting: { fontSize: 26, fontWeight: '800', color: palette.primary, letterSpacing: -0.4, marginBottom: spacing.xs },
-    date: { ...typography.body, color: colors.textSecondary },
+    hero: {
+        backgroundColor: palette.primary,
+        paddingHorizontal: spacing.lg,
+        paddingBottom: spacing.xxl,
+    },
+    date: {
+        fontSize: 12,
+        letterSpacing: 0.8,
+        color: 'rgba(255,255,255,0.7)',
+        marginBottom: spacing.sm,
+    },
+    greeting: {
+        fontSize: 28,
+        color: '#FFFFFF',
+        letterSpacing: -0.4,
+        marginBottom: spacing.xs,
+    },
+    heroSub: { ...typography.body, color: 'rgba(255,255,255,0.78)' },
+
+    sheet: {
+        marginTop: -spacing.lg,
+        paddingHorizontal: spacing.base,
+    },
 
     pendingBadge: {
-        marginTop: spacing.sm, backgroundColor: '#FEF3C7',
-        borderRadius: radius.md, paddingVertical: 6, paddingHorizontal: spacing.md,
-        alignSelf: 'flex-start',
+        marginBottom: spacing.lg,
+        backgroundColor: colors.amberBg,
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: colors.amberBorder,
+        paddingVertical: 8,
+        paddingHorizontal: spacing.md,
     },
-    pendingText: { fontSize: 12, fontWeight: '600', color: '#92400E' },
+    pendingText: { fontSize: 12, fontWeight: '600', color: colors.badgeWarningText },
 
     statsRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xl },
-
     section: { marginBottom: spacing.xl },
 
     listCard: {
         backgroundColor: colors.surface, borderRadius: radius.card,
-        borderWidth: 1, borderColor: colors.border, overflow: 'hidden', ...shadows.card,
+        borderWidth: 1, borderColor: colors.border, overflow: 'hidden', ...shadows.soft,
     },
 
     emptyCard: {
-        flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
-        gap: spacing.sm,
-        backgroundColor: colors.surface, borderRadius: radius.card,
-        borderWidth: 1, borderColor: colors.successBorder,
-        paddingVertical: spacing.lg, paddingHorizontal: spacing.base,
+        backgroundColor: colors.surface,
+        borderRadius: radius.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+        paddingVertical: spacing.lg,
+        paddingHorizontal: spacing.base,
         ...shadows.card,
     },
-    emptyText: {
-        ...typography.body,
-        color: colors.badgeSuccessText,
-        fontWeight: '500',
-        textAlign: 'center',
-        flexShrink: 1,
+    emptyIcon: {
+        width: 44, height: 44, borderRadius: 22,
+        backgroundColor: colors.accentSubtle,
+        alignItems: 'center', justifyContent: 'center',
+        marginBottom: spacing.sm,
     },
+    emptyTitle: { fontSize: 15, color: colors.textPrimary, textAlign: 'center' },
+    emptySub: { ...typography.caption, color: colors.textSecondary, textAlign: 'center', marginTop: 2 },
 
     divider: { height: 1, backgroundColor: colors.border, marginHorizontal: spacing.base },
 
-    // Alert rows (low sessions)
     alertRow: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+        flexDirection: 'row', alignItems: 'center', gap: spacing.md,
         backgroundColor: colors.surface, borderRadius: radius.card,
         borderWidth: 1, borderColor: colors.border,
         paddingVertical: spacing.md, paddingHorizontal: spacing.base,
@@ -767,51 +693,39 @@ const s = StyleSheet.create({
     },
     alertLeft: { flex: 1 },
     alertName: { ...typography.label, color: colors.textPrimary },
-    alertSub:  { ...typography.caption, color: colors.textSecondary },
+    alertSub:  { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     sessionsBadge: {
-        alignItems: 'center', backgroundColor: RED + '15',
-        borderRadius: radius.md, paddingVertical: 4, paddingHorizontal: spacing.md,
+        backgroundColor: colors.amberBg,
+        borderRadius: radius.pill,
+        paddingVertical: 4,
+        paddingHorizontal: spacing.md,
+        borderWidth: 1,
+        borderColor: colors.amberBorder,
     },
-    sessionsBadgeNum:   { fontSize: 22, fontWeight: '800', color: RED, lineHeight: 26 },
-    sessionsBadgeLabel: { fontSize: 10, fontWeight: '600', color: RED },
+    sessionsBadgeNum: { fontSize: 12, fontWeight: '700', color: colors.amberText },
 
-    // Checked-in rows
+    sessionRow: {
+        flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+        paddingVertical: spacing.md, paddingHorizontal: spacing.base,
+    },
+    statusPill: {
+        borderRadius: radius.pill, paddingVertical: 4, paddingHorizontal: spacing.sm,
+    },
+    statusPillText: { fontSize: 11, fontWeight: '700' },
+
     doneRow: {
         flexDirection: 'row', alignItems: 'center',
         paddingVertical: spacing.md, paddingHorizontal: spacing.base, gap: spacing.md,
     },
-    doneAvatar: {
-        width: 36, height: 36, borderRadius: 18,
-        backgroundColor: colors.accentSubtle, alignItems: 'center', justifyContent: 'center',
-    },
-    doneAvatarText: { fontSize: 14, fontWeight: '700', color: colors.accent },
     doneName: { ...typography.label, color: colors.textPrimary, flex: 1 },
     donePill: {
         backgroundColor: colors.badgeSuccessBg, borderRadius: radius.pill,
-        borderWidth: 1, borderColor: colors.successBorder,
         paddingVertical: 3, paddingHorizontal: spacing.sm,
     },
     donePillText: { fontSize: 11, fontWeight: '700', color: colors.badgeSuccessText },
 });
 
-// ─── Quick Actions styles ─────────────────────────────────────────────────────
-
-// palette.tealAction is the Assign Workout teal already on this screen.
-
 const qa = StyleSheet.create({
-    header: {
-        flexDirection:  'row',
-        alignItems:     'center',
-        marginBottom:   spacing.md,
-    },
-    sectionTitle: {
-        fontSize:      11,
-        fontWeight:    '800',
-        letterSpacing: 1.2,
-        color:         colors.textSecondary,
-    },
-
-    // Single-action button: icon + text block + chevron, full-width card
     actionBtn: {
         flexDirection:   'row',
         alignItems:      'center',
@@ -831,92 +745,50 @@ const qa = StyleSheet.create({
         justifyContent:  'center',
     },
     textBlock: { flex: 1 },
-    actionLabel: {
-        fontSize:      15,
-        fontWeight:    '700',
-        color:         '#FFFFFF',
-        letterSpacing: -0.1,
-    },
+    actionLabel: { fontSize: 15, color: '#FFFFFF' },
     actionSub: {
-        fontSize:   12,
-        fontWeight: '500',
-        color:      'rgba(255,255,255,0.70)',
-        marginTop:  2,
+        fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 2,
     },
 });
-
-// ─── Revenue section styles ───────────────────────────────────────────────────
 
 const rv = StyleSheet.create({
     tilesRow: { flexDirection: 'row', gap: spacing.sm },
     tile: {
         flex: 1,
-        minHeight: 92,
+        minHeight: 96,
         borderRadius: radius.card,
         paddingVertical: spacing.md,
         paddingHorizontal: spacing.sm,
-        alignItems: 'center',
+        alignItems: 'flex-start',
         justifyContent: 'center',
+        paddingLeft: spacing.md,
         ...shadows.card,
     },
-    tileGreen: { backgroundColor: colors.successBg, borderWidth: 1, borderColor: colors.successBorder },
+    tileGreen: { backgroundColor: '#E7F6EC', borderWidth: 0 },
     tileNavy:  { backgroundColor: palette.primary, borderWidth: 0 },
     tileMuted: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-    tileAmber: { backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FCD34D' },
+    tileAmber: { backgroundColor: '#FFF6E0', borderWidth: 1, borderColor: colors.amberBorder },
+    tileCurrency: { fontSize: 10, fontWeight: '700', letterSpacing: 0.6, marginBottom: 2 },
+    tileAmount: { fontSize: 26, color: colors.textPrimary, letterSpacing: -0.5, lineHeight: 32 },
+    tileLabel: { fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginTop: 4 },
 
-    // "SGD" label that sits above the numeric amount on currency tiles
-    tileCurrency: {
-        fontSize: 9, fontWeight: '700', letterSpacing: 0.8,
-        marginBottom: 1,
-    },
-    tileAmount: {
-        fontSize: 22, fontWeight: '800', color: colors.textPrimary,
-        letterSpacing: -0.5, lineHeight: 28,
-    },
-    tileLabel: {
-        fontSize: 10, fontWeight: '600', color: colors.textSecondary,
-        textAlign: 'center', marginTop: 3,
-    },
-
-    subLabel: {
-        fontSize: 11, fontWeight: '800', letterSpacing: 1.2,
-        color: colors.textSecondary, marginBottom: spacing.md,
-    },
-
-    // Empty state — "No renewals due"
-    emptyRenewCard: {
-        flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-        paddingVertical: spacing.lg, paddingHorizontal: spacing.base,
-    },
-    emptyRenewText: {
-        ...typography.body, color: colors.textSecondary,
-        fontWeight: '500', flex: 1,
-    },
-
-    // Renewal follow-up rows
     renewRow: {
         flexDirection: 'row', alignItems: 'center', gap: spacing.md,
         paddingVertical: spacing.md, paddingHorizontal: spacing.base,
     },
-    renewAvatar: {
-        width: 36, height: 36, borderRadius: 18,
-        backgroundColor: '#FEF3C7', alignItems: 'center', justifyContent: 'center',
-    },
-    renewAvatarText: { fontSize: 14, fontWeight: '700', color: '#92400E' },
     renewInfo: { flex: 1 },
     renewName: { ...typography.label, color: colors.textPrimary },
-    renewSub:  { ...typography.caption, color: colors.textSecondary },
+    renewSub:  { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     renewValueBadge: {
-        backgroundColor: '#F0FDF4', borderRadius: radius.md,
-        borderWidth: 1, borderColor: '#BBF7D0',
+        backgroundColor: colors.successBg, borderRadius: radius.md,
+        borderWidth: 1, borderColor: colors.successBorder,
         paddingVertical: 4, paddingHorizontal: spacing.sm,
         alignItems: 'center',
     },
     renewValueLabel: { fontSize: 9, fontWeight: '700', color: '#15803D', letterSpacing: 0.6 },
     renewValueText:  { fontSize: 13, fontWeight: '800', color: '#15803D', lineHeight: 18 },
-    renewValueSub:   { fontSize: 9,  fontWeight: '500', color: '#15803D', letterSpacing: 0.2 },
+    renewValueSub:   { fontSize: 9, fontWeight: '500', color: '#15803D' },
 
-    // Plan breakdown rows
     breakRow: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         paddingVertical: spacing.md, paddingHorizontal: spacing.base,
@@ -930,4 +802,3 @@ const rv = StyleSheet.create({
     },
     breakPrice: { fontSize: 11, fontWeight: '700', color: colors.accent },
 });
-

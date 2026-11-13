@@ -20,16 +20,19 @@
  *     if they fail, the card shows a graceful empty state.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useState } from 'react';
 import {
     View, Text, StyleSheet, FlatList, TouchableOpacity,
     Alert, ActivityIndicator, SafeAreaView, RefreshControl,
     Linking,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { colors, typography, spacing, radius, shadows } from '../../theme/theme';
+import { colors, typography, spacing, radius, shadows, palette } from '../../theme/theme';
+import { fontStyle, useKitFonts } from '../../theme/fonts';
+import UserAvatar from '../../components/UserAvatar';
 import {
     getSessionStatus,
     getClientPayments,
@@ -80,50 +83,6 @@ function SLabel({ text }: { text: string }) {
     return <Text style={st.sectionLabel}>{text}</Text>;
 }
 
-// ─── Client Header ────────────────────────────────────────────────────────────
-
-function ClientHeader({
-    clientName,
-    status,
-}: {
-    clientName: string;
-    status:     SessionStatusResponse | null;
-}) {
-    const hasPlan    = status?.has_plan ?? false;
-    const planStatus = (status?.plan_status ?? 'none') as PlanStatus;
-    const cfg        = STATUS_CONFIG[planStatus] ?? STATUS_CONFIG.none;
-    const remaining  = status?.sessions_remaining ?? 0;
-    const planName   = status?.plan_name;
-
-    // Avatar initials
-    const initials = clientName
-        .split(' ')
-        .map(w => w.charAt(0).toUpperCase())
-        .slice(0, 2)
-        .join('');
-
-    return (
-        <View style={st.headerCard}>
-            <View style={st.avatarCircle}>
-                <Text style={st.avatarText}>{initials}</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-                <Text style={st.clientName} numberOfLines={1}>{clientName}</Text>
-                {hasPlan ? (
-                    <Text style={st.planSubline} numberOfLines={1}>
-                        {planName ?? 'Active Plan'} · {remaining} session{remaining !== 1 ? 's' : ''} left
-                    </Text>
-                ) : (
-                    <Text style={st.planSublineNone}>No active plan</Text>
-                )}
-            </View>
-            <View style={[st.statusBadge, { backgroundColor: cfg.bg }]}>
-                <Text style={[st.statusBadgeText, { color: cfg.text }]}>{cfg.label}</Text>
-            </View>
-        </View>
-    );
-}
-
 // ─── Quick Actions ────────────────────────────────────────────────────────────
 
 function QuickActions({
@@ -135,20 +94,22 @@ function QuickActions({
     onAssignWorkout: () => void;
     onWhatsApp:      () => void;
 }) {
+    const fonts = useKitFonts();
+    const items: Array<{ label: string; icon: React.ComponentProps<typeof Ionicons>['name']; onPress: () => void }> = [
+        { label: 'Assign Plan', icon: 'document-text-outline', onPress: onAssignPlan },
+        { label: 'Assign Workout', icon: 'barbell-outline', onPress: onAssignWorkout },
+        { label: 'WhatsApp', icon: 'logo-whatsapp', onPress: onWhatsApp },
+    ];
     return (
         <View style={st.quickRow}>
-            <TouchableOpacity style={[st.qBtn, st.qBtnNavy]} onPress={onAssignPlan} activeOpacity={0.85} accessibilityRole="button">
-                <Ionicons name="add-circle-outline" size={18} color="#fff" />
-                <Text style={st.qBtnLabel}>Assign Plan</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[st.qBtn, st.qBtnTeal]} onPress={onAssignWorkout} activeOpacity={0.85} accessibilityRole="button">
-                <Ionicons name="barbell-outline" size={18} color="#fff" />
-                <Text style={st.qBtnLabel}>Assign Workout</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[st.qBtn, st.qBtnGhost]} onPress={onWhatsApp} activeOpacity={0.85} accessibilityRole="button">
-                <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
-                <Text style={[st.qBtnLabel, { color: '#25D366' }]}>Remind</Text>
-            </TouchableOpacity>
+            {items.map(item => (
+                <TouchableOpacity key={item.label} style={st.qTile} onPress={item.onPress} activeOpacity={0.85} accessibilityRole="button">
+                    <View style={st.qIcon}>
+                        <Ionicons name={item.icon} size={18} color={palette.teal} />
+                    </View>
+                    <Text style={[st.qBtnLabel, fontStyle(fonts.bodySemibold, '600')]}>{item.label}</Text>
+                </TouchableOpacity>
+            ))}
         </View>
     );
 }
@@ -187,7 +148,6 @@ function BodyProfileCard({ profile, loading }: { profile: ClientBodyProfile | nu
                     </View>
                     {(profile?.injuries_notes) ? (
                         <View style={st.injuriesRow}>
-                            <Ionicons name="warning-outline" size={13} color={colors.amberText} />
                             <Text style={st.injuriesText}>{profile.injuries_notes}</Text>
                         </View>
                     ) : (
@@ -264,7 +224,7 @@ function EnergyDots({ value }: { value: number }) {
                     style={[
                         st.energyDot,
                         i < value
-                            ? { backgroundColor: value <= 3 ? colors.errorText : value <= 6 ? '#F59E0B' : colors.accent }
+                            ? { backgroundColor: value <= 6 ? '#D97706' : colors.accent }
                             : { backgroundColor: colors.border },
                     ]}
                 />
@@ -411,10 +371,19 @@ function PaymentRow({ payment, onConfirm }: { payment: Payment; onConfirm?: (p: 
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
+type DetailTab = 'overview' | 'checkins' | 'payments';
+
 export default function ClientPaymentDashboardScreen() {
     const navigation = useNavigation<NavProp>();
     const route      = useRoute<RoutePropType>();
+    const insets     = useSafeAreaInsets();
+    const fonts      = useKitFonts();
     const { clientId, clientName } = route.params;
+    const [tab, setTab] = useState<DetailTab>('overview');
+
+    useLayoutEffect(() => {
+        navigation.setOptions({ headerShown: false });
+    }, [navigation]);
 
     // Core data (same as before)
     const [sessionStatus, setSessionStatus] = useState<SessionStatusResponse | null>(null);
@@ -525,10 +494,71 @@ export default function ClientPaymentDashboardScreen() {
 
     // ── Render ────────────────────────────────────────────────────────────────
 
+    const planStatus = (sessionStatus?.plan_status ?? 'none') as PlanStatus;
+    const planCfg = STATUS_CONFIG[planStatus] ?? STATUS_CONFIG.none;
+    const tabs: Array<{ key: DetailTab; label: string }> = [
+        { key: 'overview', label: 'Overview' },
+        { key: 'checkins', label: 'Check-ins' },
+        { key: 'payments', label: 'Payments' },
+    ];
+
+    const overview = (
+        <>
+            <QuickActions
+                onAssignPlan={() => navigation.navigate('PlanSelection', { clientId, clientName })}
+                onAssignWorkout={() => navigation.navigate('AssignWorkout', { clientId, clientName })}
+                onWhatsApp={handleWhatsApp}
+            />
+            <LatestCheckInCard checkin={latestCheckIn} loading={checkinLoading} />
+            <BodyProfileCard profile={bodyProfile} loading={profileLoading} />
+            <BodyMeasurementsCard profile={bodyProfile} loading={profileLoading} />
+            <SLabel text="SESSION PLAN" />
+            {sessionStatus && <SessionStatusCard status={sessionStatus} />}
+        </>
+    );
+
     return (
-        <SafeAreaView style={st.container}>
+        <View style={st.container}>
+            <View style={[st.hero, { paddingTop: insets.top + 8 }]}>
+                <TouchableOpacity
+                    style={st.backRow}
+                    onPress={() => navigation.goBack()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Back to clients"
+                >
+                    <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
+                    <Text style={[st.backLabel, fontStyle(fonts.bodySemibold, '600')]}>Clients</Text>
+                </TouchableOpacity>
+                <View style={st.identity}>
+                    <UserAvatar name={clientName} size={56} bgColor="rgba(255,255,255,0.16)" textColor="#FFFFFF" />
+                    <View style={{ flex: 1 }}>
+                        <Text style={[st.heroName, fontStyle(fonts.heading, '700')]} numberOfLines={1}>{clientName}</Text>
+                        <View style={[st.heroPill, { backgroundColor: planCfg.bg }]}>
+                            <Text style={[st.heroPillText, { color: planCfg.text }]}>
+                                {planStatus === 'active' ? 'Active Plan' : planCfg.label}
+                            </Text>
+                        </View>
+                    </View>
+                </View>
+                <View style={st.tabRow}>
+                    {tabs.map(item => {
+                        const on = tab === item.key;
+                        return (
+                            <TouchableOpacity
+                                key={item.key}
+                                style={[st.tab, on && st.tabOn]}
+                                onPress={() => setTab(item.key)}
+                                accessibilityRole="button"
+                            >
+                                <Text style={[st.tabText, on && st.tabTextOn, fontStyle(fonts.bodySemibold, '600')]}>{item.label}</Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            </View>
+
             <FlatList
-                data={payments}
+                data={tab === 'payments' ? payments : []}
                 keyExtractor={p => p._id}
                 refreshControl={
                     <RefreshControl
@@ -538,48 +568,31 @@ export default function ClientPaymentDashboardScreen() {
                     />
                 }
                 ListHeaderComponent={() => (
-                    <>
-                        {/* ── 1. Client Header ─────────────────────────────── */}
-                        <ClientHeader clientName={clientName} status={sessionStatus} />
-
-                        {/* ── 2. Quick Actions ─────────────────────────────── */}
-                        <SLabel text="QUICK ACTIONS" />
-                        <QuickActions
-                            onAssignPlan={() => navigation.navigate('PlanSelection', { clientId, clientName })}
-                            onAssignWorkout={() => navigation.navigate('AssignWorkout', { clientId, clientName })}
-                            onWhatsApp={handleWhatsApp}
-                        />
-
-                        {/* ── 3. Body Profile ──────────────────────────────── */}
-                        <BodyProfileCard profile={bodyProfile} loading={profileLoading} />
-
-                        {/* ── 3b. Body Measurements (read-only) ─────────────── */}
-                        <BodyMeasurementsCard profile={bodyProfile} loading={profileLoading} />
-
-                        {/* ── 4. Latest Check-In ───────────────────────────── */}
-                        <LatestCheckInCard checkin={latestCheckIn} loading={checkinLoading} />
-
-                        {/* ── 5. Session Plan ──────────────────────────────── */}
-                        <SLabel text="SESSION PLAN" />
-                        {sessionStatus && <SessionStatusCard status={sessionStatus} />}
-
-                        {/* ── 6. Payment History header ────────────────────── */}
-                        {payments.length > 0 && <SLabel text="PAYMENT HISTORY" />}
-                    </>
+                    <View style={st.sheet}>
+                        {tab === 'overview' && overview}
+                        {tab === 'checkins' && (
+                            <LatestCheckInCard checkin={latestCheckIn} loading={checkinLoading} />
+                        )}
+                        {tab === 'payments' && payments.length > 0 && <SLabel text="PAYMENT HISTORY" />}
+                    </View>
                 )}
                 renderItem={({ item }) => (
-                    <PaymentRow payment={item} onConfirm={handleConfirmFromRow} />
+                    <View style={st.paymentWrap}>
+                        <PaymentRow payment={item} onConfirm={handleConfirmFromRow} />
+                    </View>
                 )}
                 ListEmptyComponent={() => (
-                    <View style={st.emptyState}>
-                        <Ionicons name="receipt-outline" size={40} color={colors.textSecondary} />
-                        <Text style={st.emptyText}>No payments yet</Text>
-                    </View>
+                    tab === 'payments' ? (
+                        <View style={st.emptyState}>
+                            <Ionicons name="receipt-outline" size={40} color={colors.textSecondary} />
+                            <Text style={st.emptyText}>No payments yet</Text>
+                        </View>
+                    ) : null
                 )}
                 contentContainerStyle={st.listContent}
                 showsVerticalScrollIndicator={false}
             />
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -591,7 +604,25 @@ const TEAL = '#0F766E';
 const st = StyleSheet.create({
     container:   { flex: 1, backgroundColor: colors.background },
     centered:    { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background, padding: spacing.xl },
-    listContent: { padding: spacing.md, paddingBottom: spacing.xxl },
+    listContent: { paddingBottom: spacing.xxl },
+    sheet: { paddingHorizontal: spacing.md, paddingTop: spacing.md },
+    paymentWrap: { paddingHorizontal: spacing.md },
+    hero: {
+        backgroundColor: palette.primary,
+        paddingHorizontal: spacing.lg,
+        paddingBottom: spacing.md,
+    },
+    backRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginBottom: spacing.md },
+    backLabel: { color: '#FFFFFF', fontSize: 16, marginLeft: 2 },
+    identity: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.md },
+    heroName: { fontSize: 24, color: '#FFFFFF', marginBottom: 6 },
+    heroPill: { alignSelf: 'flex-start', borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 3 },
+    heroPillText: { fontSize: 12, fontWeight: '700' },
+    tabRow: { flexDirection: 'row', gap: 6 },
+    tab: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill },
+    tabOn: { backgroundColor: 'rgba(255,255,255,0.16)' },
+    tabText: { color: 'rgba(255,255,255,0.65)', fontSize: 14 },
+    tabTextOn: { color: '#FFFFFF' },
 
     // ── Section label ──────────────────────────────────────────────────────────
     sectionLabel: {
@@ -655,7 +686,24 @@ const st = StyleSheet.create({
         borderWidth:     1.5,
         borderColor:     '#25D366',
     },
-    qBtnLabel: { ...typography.caption, color: '#fff', fontWeight: '700', textAlign: 'center' },
+    qTile: {
+        flex: 1,
+        backgroundColor: colors.surface,
+        borderRadius: radius.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+        alignItems: 'center',
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.xs,
+        ...shadows.card,
+    },
+    qIcon: {
+        width: 36, height: 36, borderRadius: 18,
+        backgroundColor: colors.accentSubtle,
+        alignItems: 'center', justifyContent: 'center',
+        marginBottom: spacing.sm,
+    },
+    qBtnLabel: { ...typography.caption, color: colors.textPrimary, fontWeight: '700', textAlign: 'center' },
 
     // ── Info cards (body profile + check-in) ─────────────────────────────────
     infoCard: {
