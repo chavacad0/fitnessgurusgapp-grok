@@ -83,6 +83,18 @@ async function initIndexes(db: Db): Promise<void> {
             { unique: true, name: 'checkins_one_per_day' }
         );
 
+        // photos
+        //  → GET /api/photos/:id looks the file up by its UUID.
+        //  → A check-in save confirms each id belongs to that client.
+        await db.collection('photos').createIndex(
+            { id: 1 },
+            { unique: true, name: 'photos_id_unique' }
+        );
+        await db.collection('photos').createIndex(
+            { client_id: 1, created_at: -1 },
+            { name: 'photos_by_client' }
+        );
+
         // red_flags
         await db.collection('red_flags').createIndex(
             { client_id: 1, type: 1 },

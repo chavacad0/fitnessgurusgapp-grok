@@ -143,6 +143,44 @@ TEST_MONGODB_URI=mongodb://127.0.0.1:27017 npm test
 
 `npm run test:auth` is a separate suite. It also uses `TEST_MONGODB_URI` only, and it refuses to drop a database whose name does not end with `_test`.
 
+`npm run test:photos` checks private progress photos. It uses `TEST_MONGODB_URI` only, `NODE_ENV=test`, and a database name ending in `_test`.
+
+## Move old progress photos (one time)
+
+Progress photos are no longer public. New photos go straight into a private folder. Photos already sitting in `uploads/` stay on disk, but the old `/uploads/...` link no longer opens them.
+
+The move is a separate command. The server does not run it. Run a dry run first, and back up first.
+
+1. Back up the database, and copy the `uploads/` folder somewhere safe.
+2. Dry run (this is the default). It only prints counts. It does not move files or change the database:
+
+```bash
+npm run migrate:photos
+```
+
+3. When the counts look right, apply the move:
+
+```bash
+npm run migrate:photos -- --apply
+```
+
+The command prints counts only. It does not print file names, client names, or other personal data.
+
+| Count | Meaning |
+|---|---|
+| files_seen | Files in the uploads folder |
+| would_move | Dry run: files that would be moved |
+| moved | Apply: files that were moved |
+| already_migrated | A previous apply already moved this file |
+| owner_unknown | No single owner was found. The file stays where it is, and it is not public |
+| not_a_photo | Not a JPG, PNG, or HEIC. Left in place |
+| not_stripped | Location data could not be removed safely. Left in place |
+| skipped | Unreadable, or larger than 20 MB. Left in place |
+| references_to_update | Dry run: check-ins or client records that would be updated |
+| references_updated | Apply: records that now point at the private photo |
+
+Running it again is safe. A second `--apply` does not create a second copy. Files whose owner cannot be determined are left in `uploads/` and are listed only as `owner_unknown`.
+
 ## Questions?
 
 Refer to:

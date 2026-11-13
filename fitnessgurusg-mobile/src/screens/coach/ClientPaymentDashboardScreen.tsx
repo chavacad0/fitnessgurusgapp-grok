@@ -24,13 +24,14 @@ import React, { useCallback, useLayoutEffect, useState } from 'react';
 import {
     View, Text, StyleSheet, FlatList, TouchableOpacity,
     Alert, ActivityIndicator, SafeAreaView, RefreshControl,
-    Linking,
+    Linking, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, typography, spacing, radius, shadows, palette } from '../../theme/theme';
+import { BASE_URL } from '../../config/api';
 import { fontStyle, useKitFonts } from '../../theme/fonts';
 import UserAvatar from '../../components/UserAvatar';
 import {
@@ -38,6 +39,7 @@ import {
     getClientPayments,
     getCheckIns,
     getClientBodyProfile,
+    getImageRequestHeaders,
     ClientBodyProfile,
 } from '../../services/apiClient';
 import { Payment, PlanStatus, SessionStatusResponse, CheckIn } from '../../types';
@@ -234,7 +236,15 @@ function EnergyDots({ value }: { value: number }) {
     );
 }
 
-function LatestCheckInCard({ checkin, loading }: { checkin: CheckIn | null; loading: boolean }) {
+function LatestCheckInCard({
+    checkin,
+    loading,
+    imageHeaders,
+}: {
+    checkin: CheckIn | null;
+    loading: boolean;
+    imageHeaders?: { Authorization: string };
+}) {
     return (
         <View style={st.infoCard}>
             <SLabel text="LATEST CHECK-IN" />
@@ -269,6 +279,21 @@ function LatestCheckInCard({ checkin, loading }: { checkin: CheckIn | null; load
                         <View style={st.checkinNote}>
                             <Ionicons name="chatbubble-ellipses-outline" size={13} color={colors.textSecondary} />
                             <Text style={st.checkinNoteText}>{checkin.notes}</Text>
+                        </View>
+                    ) : null}
+                    {checkin.photos && checkin.photos.length > 0 ? (
+                        <View style={st.photoRow}>
+                            {checkin.photos.slice(0, 3).map(url => (
+                                <Image
+                                    key={url}
+                                    source={{
+                                        uri: url.startsWith('http') ? url : `${BASE_URL}${url}`,
+                                        headers: imageHeaders,
+                                    }}
+                                    style={st.photoThumb}
+                                    resizeMode="cover"
+                                />
+                            ))}
                         </View>
                     ) : null}
                 </>
@@ -397,6 +422,7 @@ export default function ClientPaymentDashboardScreen() {
     const [latestCheckIn,   setLatestCheckIn]   = useState<CheckIn | null>(null);
     const [profileLoading,  setProfileLoading]  = useState(true);
     const [checkinLoading,  setCheckinLoading]  = useState(true);
+    const [imageHeaders,    setImageHeaders]    = useState<{ Authorization: string } | undefined>(undefined);
 
     const fetchAll = useCallback(async () => {
         try {
@@ -422,6 +448,8 @@ export default function ClientPaymentDashboardScreen() {
             .then(res => { if (res.success) setBodyProfile(res.profile); })
             .catch(() => {/* graceful degrade — card shows empty state */})
             .finally(() => setProfileLoading(false));
+
+        getImageRequestHeaders().then(setImageHeaders).catch(() => undefined);
 
         // ── Non-blocking: latest check-in ─────────────────────────────────────
         setCheckinLoading(true);
@@ -509,7 +537,7 @@ export default function ClientPaymentDashboardScreen() {
                 onAssignWorkout={() => navigation.navigate('AssignWorkout', { clientId, clientName })}
                 onWhatsApp={handleWhatsApp}
             />
-            <LatestCheckInCard checkin={latestCheckIn} loading={checkinLoading} />
+            <LatestCheckInCard checkin={latestCheckIn} loading={checkinLoading} imageHeaders={imageHeaders} />
             <BodyProfileCard profile={bodyProfile} loading={profileLoading} />
             <BodyMeasurementsCard profile={bodyProfile} loading={profileLoading} />
             <SLabel text="SESSION PLAN" />
@@ -571,7 +599,7 @@ export default function ClientPaymentDashboardScreen() {
                     <View style={st.sheet}>
                         {tab === 'overview' && overview}
                         {tab === 'checkins' && (
-                            <LatestCheckInCard checkin={latestCheckIn} loading={checkinLoading} />
+                            <LatestCheckInCard checkin={latestCheckIn} loading={checkinLoading} imageHeaders={imageHeaders} />
                         )}
                         {tab === 'payments' && payments.length > 0 && <SLabel text="PAYMENT HISTORY" />}
                     </View>
@@ -776,6 +804,8 @@ const st = StyleSheet.create({
         padding:         spacing.sm,
     },
     checkinNoteText:  { ...typography.caption, color: colors.textSecondary, flex: 1, fontStyle: 'italic' },
+    photoRow:         { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+    photoThumb:       { width: 72, height: 72, borderRadius: radius.md, backgroundColor: colors.border },
 
     emptyInline: {
         flexDirection:  'row',

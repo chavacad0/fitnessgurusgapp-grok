@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
-import { getCheckIns, getWorkoutHistory, getAuthHeaders } from '../../services/apiClient';
+import { getCheckIns, getWorkoutHistory, getAuthHeaders, getImageRequestHeaders } from '../../services/apiClient';
 import { BASE_URL } from '../../config/api';
 import EmptyState from '../../components/EmptyState';
 import Card from '../../components/Card';
@@ -121,6 +121,7 @@ export default function ClientProgressScreen() {
     const [loading,        setLoading]        = useState(true);
     const [refreshing,     setRefreshing]     = useState(false);
     const [error,          setError]          = useState<string | null>(null);
+    const [imageHeaders,   setImageHeaders]   = useState<{ Authorization: string } | undefined>(undefined);
 
     const fetchAll = useCallback(async (isRefresh = false) => {
         if (!clientId) { setLoading(false); setRefreshing(false); return; }
@@ -129,6 +130,8 @@ export default function ClientProgressScreen() {
         setError(null);
 
         try {
+            const photoHeaders = await getImageRequestHeaders();
+            setImageHeaders(photoHeaders);
             // Parallel fetches
             const [checkInResult, historyResult, profileResult] = await Promise.allSettled([
                 getCheckIns(clientId),
@@ -368,7 +371,7 @@ export default function ClientProgressScreen() {
                     {progressPhotos.map((photo, idx) => (
                         <View key={idx} style={s.photoThumb}>
                             <Image
-                                source={{ uri: photo.url }}
+                                source={{ uri: photo.url, headers: imageHeaders }}
                                 style={s.photoImage}
                                 resizeMode="cover"
                             />

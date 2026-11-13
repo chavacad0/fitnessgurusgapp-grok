@@ -174,6 +174,8 @@ export interface CheckInRequest {
     /** Phase 1 — manual nutrition input. Omit entirely if client skips nutrition. */
     nutrition?: NutritionData;
     notes?: string;
+    /** Private photo links from upload, each `/api/photos/<id>`. */
+    photos?: string[];
 }
 
 /**
@@ -196,6 +198,8 @@ export interface CheckIn {
     /** Populated when the client logged nutrition for this check-in. */
     nutrition?: NutritionData;
     notes?: string;
+    /** Private photo links saved on this check-in. Each is `/api/photos/<id>`. */
+    photos?: string[];
     createdAt: string;
     updatedAt?: string;
 }
