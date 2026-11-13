@@ -16,14 +16,29 @@
  *   Meta itself also enforces per-WABA rate limits.
  */
 
-import { Router, Response }         from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/authMiddleware';
+import { requireRole } from '../middleware/requireRole';
 import { sendWhatsAppMessage }       from '../services/whatsappService';
 
 const router = Router();
 
-// Apply auth to all routes in this file
+// Coach only, then switched off unless WHATSAPP_ENABLED is exactly true or 1.
+// Unset, empty, and "false" all keep sending disabled. No client phone numbers
+// are stored or required.
 router.use(authMiddleware);
+router.use(requireRole('coach'));
+router.use((_req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const flag = (process.env.WHATSAPP_ENABLED ?? '').trim().toLowerCase();
+    if (flag !== 'true' && flag !== '1') {
+        res.status(503).json({
+            success: false,
+            error: 'WhatsApp is not available yet.',
+        });
+        return;
+    }
+    next();
+});
 
 // ─── Logging helpers ──────────────────────────────────────────────────────────
 

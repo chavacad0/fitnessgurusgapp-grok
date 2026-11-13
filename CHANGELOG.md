@@ -19,6 +19,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ### Fixed
 
+- Security, [pull request #15](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/15): coach-only routes now refuse a client login. A login token with no role is logged out (401) instead of being treated as a coach. WhatsApp sending from the server is coach-only and switched off until `WHATSAPP_ENABLED` is true (AUD-003). Booking another coach's client is refused before any plan lookup. `npm run test:auth` uses `TEST_MONGODB_URI` only.
+
 - Security (AUD-005), [pull request #13](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/13): `npm test` no longer deletes every client from the database the app is configured with. It connects only through `TEST_MONGODB_URI`, and it refuses to delete unless `NODE_ENV` is `test` and the database name ends with `_test`. It deletes only the rows that test created.
 
 ### In review
