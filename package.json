@@ -6,6 +6,7 @@
   "scripts": {
     "test": "NODE_ENV=test tsx src/test-mongo.ts",
     "test:auth": "tsx src/scripts/test-auth-regression.ts",
+    "test:reliability": "NODE_ENV=test tsx src/test/reliabilityRegression.ts",
     "typecheck": "tsc --noEmit -p tsconfig.server.json",
     "test:legacy-sql": "tsx src/legacy-sql/test-db.ts",
     "dev": "tsx watch src/server.ts",

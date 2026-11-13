@@ -17,6 +17,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 - [Pull request #16](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/16) — Coach screens follow the approved mockups: Dashboard, Clients, a client’s details, Schedule, Insights, Profile, and Assign workout. Navy headers, calm amber for follow-up, and initials instead of photos. The greeting and profile use the coach who is logged in. Client names come from the existing list. Streaks, holiday mode, the week grid, Hide SGD, and the revenue chart are not shown. Payments, booking steps, and the words on those buttons are unchanged.
 
+### Fixed
+
+- Booking reliability, [pull request #17](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/17) (AUD-010, AUD-011, AUD-012): a cancelled time slot can be booked again. A booking is refused when the client has no sessions left, and the coach's Book-a-client sheet shows that client as unavailable. A normal check-in no longer raises a false missed-workout flag.
+
 ## [2026-11-13]
 
 ### Added
