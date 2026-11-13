@@ -13,11 +13,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ## [Unreleased]
 
+## [2026-11-13]
+
 ### Changed
 
 - [Pull request #16](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/16) — Coach screens follow the approved mockups: Dashboard, Clients, a client’s details, Schedule, Insights, Profile, and Assign workout. Navy headers, calm amber for follow-up, and initials instead of photos. The greeting and profile use the coach who is logged in. Client names come from the existing list. Streaks, holiday mode, the week grid, Hide SGD, and the revenue chart are not shown. Payments, booking steps, and the words on those buttons are unchanged.
-
-## [2026-11-13]
 
 ### Added
 
