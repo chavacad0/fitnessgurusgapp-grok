@@ -441,6 +441,34 @@ Open decision for Ava and the coach: whether the paid plan's dates extend by the
 
 Status: not started.
 
+### Travel mode with nearby gyms
+
+Proposal only. Not started. This sits inside Holiday mode. Do not build it until that design is approved, and until the owner approves an API key in the env config.
+
+When a client turns on Holiday mode, they type the destination city and the dates. The app does not track live location.
+
+The app lists nearby gyms through a maps service, for example the Google Places API. Each gym shows:
+
+- Distance
+- Rating
+- Opening hours
+- An optional day-pass filter
+- Get directions, which opens Maps
+
+A note on the list says: check with the gym before you go.
+
+If a gym is not the right fit, the fallback is a hotel-room or outdoor workout. It uses the client's equipment list, with smart swaps when a piece of kit is missing.
+
+The coach gets a heads-up card and can assign a lighter travel plan. The streak stays frozen. When the client is back, they get a welcome-back nudge with a booking suggestion.
+
+Guardrails:
+
+- Cache the gym results. Search only when the client asks, so the maps API is not called on its own. That keeps the API cost down.
+- Travel dates are private. Only the client and their own coach can see them. They never appear on the community feed.
+- This depends on Holiday mode, the equipment picker and the exercise library, and an API key in the env config. The API key needs owner approval.
+
+Status: not started.
+
 Status for Motivation & Rewards overall: not started. Needs a design plan and owner approval.
 
 ---

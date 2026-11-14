@@ -322,3 +322,56 @@ export async function getMissedStreakForClients(
 
     return result;
 }
+
+export interface RecentCheckInMood {
+    date: string;
+    energy?: number;
+    hunger?: number;
+}
+
+/**
+ * Last few check-ins per client, most recent first.
+ * Reads metrics.energy / metrics.hunger, and the older flat fields when
+ * metrics were not saved. One query for the whole coach list.
+ */
+export async function getRecentMoodForClients(
+    clientIds: string[],
+    limit: number = 3,
+): Promise<Map<string, RecentCheckInMood[]>> {
+    const result = new Map<string, RecentCheckInMood[]>(clientIds.map(id => [id, []]));
+    if (clientIds.length === 0) return result;
+
+    const db = await getDb();
+    const rows = await db.collection('checkins').aggregate([
+        { $match: { client_id: { $in: clientIds } } },
+        {
+            $project: {
+                client_id: 1,
+                date: 1,
+                energy: { $ifNull: ['$metrics.energy', '$energy'] },
+                hunger: { $ifNull: ['$metrics.hunger', '$hunger'] },
+            },
+        },
+    ]).toArray();
+
+    const grouped = new Map<string, RecentCheckInMood[]>();
+    for (const row of rows) {
+        const clientId = row.client_id as string;
+        const date = typeof row.date === 'string' ? row.date : '';
+        if (!date) continue;
+        const list = grouped.get(clientId) ?? [];
+        list.push({
+            date,
+            energy: typeof row.energy === 'number' ? row.energy : undefined,
+            hunger: typeof row.hunger === 'number' ? row.hunger : undefined,
+        });
+        grouped.set(clientId, list);
+    }
+
+    for (const [clientId, list] of grouped) {
+        list.sort((a, b) => b.date.localeCompare(a.date));
+        result.set(clientId, list.slice(0, limit));
+    }
+
+    return result;
+}

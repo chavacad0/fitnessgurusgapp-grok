@@ -110,6 +110,11 @@ export interface ClientStatusItem {
     check_in_status?: 'active' | 'paused';
     /** undefined = not yet chosen; true = opted in; false = "not now" */
     check_in_reminders_enabled?: boolean;
+    /**
+     * Coach-only. True when the last 3 check-ins are low energy and Always hungry.
+     * The client app does not show this.
+     */
+    worth_check_in?: boolean;
 
     // ── Session plan fields (optional — populated when a plan is assigned) ──
     plan_name?: string;             // e.g. "Starter", "Progress", "Elite"

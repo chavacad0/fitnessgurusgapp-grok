@@ -6,7 +6,7 @@
  *
  * Sections:
  *   Header    — date, greeting
- *   Wellbeing — Energy + Hunger 1-10 pickers (inline TouchableOpacity)
+ *   Wellbeing — Energy faces (2–10) and appetite chips on the same fields
  *   Activity  — Steps (numeric input) + Nutrition (collapsible)
  *   Extra     — Notes + Progress Photos
  *   Submit    — CTA button + success / error states
@@ -40,7 +40,9 @@ import { submitCheckIn, uploadSingleCheckInPhoto, getTodayWorkout, submitWorkout
 import { BASE_URL }                          from '../../config/api';
 import { NutritionData, WorkoutAssignment, WorkoutLog, ExerciseLog, WorkoutHistoryEntry } from '../../types';
 import { colors, spacing, radius, typography, componentSize, shadows } from '../../theme/theme';
-import RatingRow from '../../components/RatingRow';
+import EnergyFaces from '../../components/EnergyFaces';
+import AppetiteChips from '../../components/AppetiteChips';
+import { checkInSuccessText } from '../../checkin/scale';
 import NutritionCard from '../../components/NutritionCard';
 import Button from '../../components/Button';
 
@@ -740,8 +742,6 @@ function getTimeOfDay(): string {
     return 'evening';
 }
 
-// RatingRow → extracted to ../../components/RatingRow.tsx
-
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ClientHomeScreen() {
@@ -759,9 +759,9 @@ export default function ClientHomeScreen() {
     console.log('[ClientHomeScreen] mount | clientId:', clientId);
 
     // ── Core check-in state ────────────────────────────────────────────────────
-    const [energy, setEnergy] = useState(5);
+    // Okay (6) and Normal (5) are the nearest faces/chips to the old default of 5.
+    const [energy, setEnergy] = useState(6);
     const [hunger, setHunger] = useState(5);
-    const [openRating, setOpenRating] = useState<'energy' | 'appetite' | null>(null);
     const [steps,  setSteps]  = useState('');
     const [notes,  setNotes]  = useState('');
 
@@ -954,7 +954,7 @@ export default function ClientHomeScreen() {
     // ── Reset helper ───────────────────────────────────────────────────────────
     const resetForm = () => {
         setSubmitState('idle');
-        setEnergy(5);       setHunger(5);
+        setEnergy(6);       setHunger(5);
         setSteps('');       setNotes('');
         setCalories('');    setProtein('');
         setCarbs('');       setFat('');
@@ -1025,9 +1025,7 @@ export default function ClientHomeScreen() {
                             <Ionicons name="checkmark" size={32} color={colors.textOnPrimary} />
                         </View>
                         <Text style={s.successHeading}>Check-in saved.</Text>
-                        <Text style={s.successBody}>
-                            Come back tomorrow. Your coach will review it shortly.
-                        </Text>
+                        <Text style={s.successBody}>{checkInSuccessText(energy)}</Text>
                         <TouchableOpacity style={s.resetBtn} onPress={resetForm} activeOpacity={0.75}>
                             <Text style={s.resetLabel}>Edit today's check-in</Text>
                         </TouchableOpacity>
@@ -1154,74 +1152,9 @@ export default function ClientHomeScreen() {
                 })()}
 
                 <Text style={s.sectionLabel}>Today so far</Text>
-                <View style={s.miniRow}>
-                    <TouchableOpacity
-                        style={[s.mini, openRating === 'energy' && s.miniOn]}
-                        onPress={() => setOpenRating(current => current === 'energy' ? null : 'energy')}
-                        accessibilityRole="button"
-                        accessibilityState={{ expanded: openRating === 'energy' }}
-                        accessibilityLabel={`Rate energy, currently ${energy} of 10, double tap to ${openRating === 'energy' ? 'collapse' : 'expand'}`}
-                    >
-                        <Ionicons name="flash-outline" size={16} color={colors.accent} />
-                        <Text style={s.miniLabel}>Energy</Text>
-                        <Text style={s.miniValue}>{energy}<Text style={s.miniUnit}>/10</Text></Text>
-                        <Ionicons
-                            name={openRating === 'energy' ? 'chevron-up' : 'chevron-down'}
-                            size={14}
-                            color={colors.accent}
-                            style={s.miniChevron}
-                        />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[s.mini, openRating === 'appetite' && s.miniOn]}
-                        onPress={() => setOpenRating(current => current === 'appetite' ? null : 'appetite')}
-                        accessibilityRole="button"
-                        accessibilityState={{ expanded: openRating === 'appetite' }}
-                        accessibilityLabel={`Rate appetite, currently ${hunger} of 10, double tap to ${openRating === 'appetite' ? 'collapse' : 'expand'}`}
-                    >
-                        <Ionicons name="restaurant-outline" size={16} color={colors.accent} />
-                        <Text style={s.miniLabel}>Appetite</Text>
-                        <Text style={s.miniValue}>{hunger}<Text style={s.miniUnit}>/10</Text></Text>
-                        <Ionicons
-                            name={openRating === 'appetite' ? 'chevron-up' : 'chevron-down'}
-                            size={14}
-                            color={colors.accent}
-                            style={s.miniChevron}
-                        />
-                    </TouchableOpacity>
-                    <View style={s.mini}>
-                        <Ionicons name="footsteps-outline" size={16} color={colors.accent} />
-                        <Text style={s.miniLabel}>Steps</Text>
-                        <Text style={steps.trim() ? s.miniValue : s.miniAdd}>
-                            {steps.trim() ? steps : '+ Add'}
-                        </Text>
-                    </View>
-                </View>
-
-                {openRating === 'energy' && (
-                <RatingRow
-                    label="Energy"
-                    question="How's your energy right now?"
-                    value={energy}
-                    onChange={setEnergy}
-                    accentColor={colors.accent}
-                    lowLabel="Drained"
-                    highLabel="Energised"
-                />
-                )}
-
-                {/* UI label is "Appetite," but API field remains `hunger` for backward compatibility. */}
-                {openRating === 'appetite' && (
-                <RatingRow
-                    label="Appetite"
-                    question="How hungry or snacky do you feel today?"
-                    value={hunger}
-                    onChange={setHunger}
-                    accentColor={colors.badgeSuccessText}
-                    lowLabel="Not hungry"
-                    highLabel="Very hungry"
-                />
-                )}
+                <EnergyFaces value={energy} onChange={setEnergy} />
+                {/* UI label is "Appetite". The saved field is still `hunger`. */}
+                <AppetiteChips value={hunger} onChange={setHunger} />
 
                 {/* ── Activity ──────────────────────────────────────────────── */}
                 <View style={s.sectionRow}>
@@ -1367,23 +1300,6 @@ const s = StyleSheet.create({
     eyebrow:  { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.7)', letterSpacing: 0.7, marginBottom: spacing.sm },
     greeting: { ...typography.h1, color: colors.textOnPrimary, marginBottom: spacing.xs },
     sub:      { ...typography.body, color: 'rgba(255,255,255,0.78)' },
-
-    miniRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
-    mini: {
-        flex: 1,
-        backgroundColor: colors.surface,
-        borderRadius: radius.card,
-        padding: spacing.md,
-        borderWidth: 1.5,
-        borderColor: 'transparent',
-        ...shadows.card,
-    },
-    miniOn: { borderColor: colors.accent },
-    miniChevron: { position: 'absolute', top: 10, right: 10 },
-    miniLabel: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
-    miniValue: { ...typography.h3, color: colors.textPrimary, marginTop: 2 },
-    miniUnit: { fontSize: 11, fontWeight: '500', color: colors.textTertiary },
-    miniAdd: { ...typography.label, color: colors.accent, marginTop: 4 },
 
     // ── Section labels ────────────────────────────────────────────────────────
     // ── Section rows ──────────────────────────────────────────────────────────
