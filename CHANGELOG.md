@@ -16,7 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 ### Added
 
 - [Pull request #27](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/27) — Coaches can set the hours they actually work, the session length (30, 45, 60, or 90 minutes), and a buffer after each session (0, 10, or 15 minutes). They can block time, or open extra slots or close one date, without changing the weekly hours. The schedule lists those times in a calmer timeline. If working hours are not saved yet, the day is not filled with automatic slots, and bookings that are already there stay visible. Times are kept in Singapore time. A coach only edits their own hours.
-- Clients can save My best times and away dates. Their coach sees Good for tags and a heat strip built from those times, not from booked sessions. A client can request a time. Nothing is booked until the coach accepts. Accept uses the same booking check as a normal session, including sessions left. Suggest another time and Decline do not book. A client only sees their own coach. A coach only sees their own clients.
+- [Pull request #28](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/28) — Clients can save My best times and away dates. Their coach sees Good for tags and a heat strip built from those times, not from booked sessions. A client can request a time. Nothing is booked until the coach accepts. Accept uses the same booking check as a normal session, including sessions left. Suggest another time and Decline do not book. A client only sees their own coach. A coach only sees their own clients.
 
 ## [2026-11-13]
 
