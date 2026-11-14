@@ -15,7 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ### Changed
 
-- Body Measurements on Profile follows the approved figure cards. Female shows neck, waist, and hips. Male shows neck and waist. A Figure switch remembers Female or Male on the profile. Height can be added on the same card. Chest stays under + Add more, so a saved chest number is not lost. A tip says to measure in the morning with the tape snug, not tight. The body-fat estimate is not shown.
+- [Pull request #23](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/23) — Body Measurements on Profile follows the approved figure cards. Female shows neck, waist, and hips. Male shows neck and waist. A Figure switch remembers Female or Male on the profile. Height can be added on the same card. Chest stays under + Add more, so a saved chest number is not lost. A tip says to measure in the morning with the tape snug, not tight. The body-fat estimate is not shown.
 
 ## [2026-11-14]
 
