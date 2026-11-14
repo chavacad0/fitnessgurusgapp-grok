@@ -231,7 +231,7 @@ export async function linkClientToCoach(
  * Called by PATCH /api/clients/me/profile.
  *
  * Safety rules:
- *  - Only writes the six listed fields — cannot touch email, password_hash,
+ *  - Only writes the listed fields — cannot touch email, password_hash,
  *    coach_id, plan state, or any other auth/identity field.
  *  - Only updates keys that are explicitly present in the payload.
  *    Undefined keys are skipped so a partial update never wipes existing data.
@@ -254,6 +254,8 @@ export async function updateClientBodyProfile(
         chest_cm?:                    number;
         waist_cm?:                    number;
         hips_cm?:                     number;
+        /** Body-measurement figure. Only 'female' or 'male'. */
+        sex?:                         'female' | 'male';
         // Check-in preference fields
         check_in_reminders_enabled?:  boolean;
         check_in_status?:             'active' | 'paused';
@@ -275,6 +277,7 @@ export async function updateClientBodyProfile(
     if (data.chest_cm            !== undefined) $set['chest_cm']            = data.chest_cm;
     if (data.waist_cm            !== undefined) $set['waist_cm']            = data.waist_cm;
     if (data.hips_cm             !== undefined) $set['hips_cm']             = data.hips_cm;
+    if (data.sex                 !== undefined) $set['sex']                 = data.sex;
     // Check-in preference fields
     if (data.check_in_reminders_enabled !== undefined) $set['check_in_reminders_enabled'] = data.check_in_reminders_enabled;
     if (data.check_in_status            !== undefined) $set['check_in_status']             = data.check_in_status;
