@@ -13,6 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ## [Unreleased]
 
+### Docs
+
+- Docs only. Inside the Holiday mode future plan, `PROJECT_STATUS.md` adds Travel mode with nearby gyms. A client types a destination city and dates (no live location). The app would list nearby gyms, with a hotel-room or outdoor workout as the fallback. The coach gets a heads-up, the streak stays frozen, and travel dates stay private to the client and their coach. Nothing in the app is built. The audit log is unchanged.
+
 ## [2026-11-14]
 
 ### Changed
