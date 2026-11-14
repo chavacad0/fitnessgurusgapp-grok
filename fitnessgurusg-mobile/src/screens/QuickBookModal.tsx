@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing, radius, shadows } from '../theme/theme';
-import { getClientStatus, quickBook } from '../services/apiClient';
+import { createBooking, getClientStatus, quickBook } from '../services/apiClient';
 import { ClientStatusItem } from '../types';
 
 interface Props {
@@ -15,6 +15,8 @@ interface Props {
     preselectedClientId?:   string;     // optional — set from client card
     preselectedClientName?: string;
     preselectedStartTime?:  string;     // optional — pre-fill start time from available slot (HH:MM)
+    preselectedEndTime?:    string;     // session end, so a 45 or 90 minute slot is not stretched to an hour
+    preselectedSlotId?:     string;     // book this existing slot instead of creating another one
     preselectedDate?:       string;     // optional — YYYY-MM-DD from BookingScreen date strip
 }
 
@@ -51,7 +53,7 @@ function canBookClient(client: ClientStatusItem): boolean {
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 
-export default function QuickBookModal({ visible, onClose, onBooked, preselectedClientId, preselectedClientName, preselectedStartTime, preselectedDate }: Props) {
+export default function QuickBookModal({ visible, onClose, onBooked, preselectedClientId, preselectedClientName, preselectedStartTime, preselectedEndTime, preselectedSlotId, preselectedDate }: Props) {
     const [clients,      setClients]      = useState<ClientStatusItem[]>([]);
     const [clientSearch, setClientSearch] = useState('');
     const [selectedId,   setSelectedId]   = useState(preselectedClientId ?? '');
@@ -60,6 +62,7 @@ export default function QuickBookModal({ visible, onClose, onBooked, preselected
     const [startTime,    setStartTime]    = useState('09:00');
     const [endTime,      setEndTime]      = useState('10:00');
     const [notes,        setNotes]        = useState('');
+    const [slotId,       setSlotId]       = useState<string | undefined>(preselectedSlotId);
     const [loadingClients, setLoadingClients] = useState(false);
     const [submitting,   setSubmitting]   = useState(false);
 
@@ -74,7 +77,8 @@ export default function QuickBookModal({ visible, onClose, onBooked, preselected
         setDate(preselectedDate ?? todaySGT());
         const resolvedStart = preselectedStartTime ?? '09:00';
         setStartTime(resolvedStart);
-        setEndTime(addHour(resolvedStart));
+        setEndTime(preselectedEndTime ?? addHour(resolvedStart));
+        setSlotId(preselectedSlotId);
         setNotes('');
         setClientSearch('');
 
@@ -83,7 +87,7 @@ export default function QuickBookModal({ visible, onClose, onBooked, preselected
             .then(r => setClients(r.clients))
             .catch(() => setClients([]))
             .finally(() => setLoadingClients(false));
-    }, [visible, preselectedClientId, preselectedClientName, preselectedStartTime, preselectedDate]);
+    }, [visible, preselectedClientId, preselectedClientName, preselectedStartTime, preselectedEndTime, preselectedSlotId, preselectedDate]);
 
     const filteredClients = clientSearch.trim()
         ? clients.filter(c => c.clientName.toLowerCase().includes(clientSearch.toLowerCase()))
@@ -103,7 +107,12 @@ export default function QuickBookModal({ visible, onClose, onBooked, preselected
     const handleStartBlur = () => {
         const normalised = padTime(startTime);
         setStartTime(normalised);
-        setEndTime(addHour(normalised));
+        if (preselectedSlotId && normalised !== preselectedStartTime) {
+            setSlotId(undefined);
+            setEndTime(addHour(normalised));
+        } else if (!preselectedEndTime) {
+            setEndTime(addHour(normalised));
+        }
     };
 
     const handleSubmit = async () => {
@@ -121,7 +130,12 @@ export default function QuickBookModal({ visible, onClose, onBooked, preselected
 
         setSubmitting(true);
         try {
-            await quickBook({ client_id: selectedId, date, start_time: startTime, end_time: endTime, notes: notes.trim() || undefined });
+            const note = notes.trim() || undefined;
+            if (slotId) {
+                await createBooking({ client_id: selectedId, availability_slot_id: slotId, notes: note });
+            } else {
+                await quickBook({ client_id: selectedId, date, start_time: startTime, end_time: endTime, notes: note });
+            }
             onBooked();
             onClose();
         } catch (err: any) {

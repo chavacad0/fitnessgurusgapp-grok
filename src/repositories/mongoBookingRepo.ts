@@ -15,6 +15,35 @@ import { Booking } from '../types';
  * Returns all bookings for a coach, optionally filtered by date.
  * Sorted by date + start_time ascending.
  */
+/**
+ * Bookings for one coach on dates from `fromDate` through `toDate`, inclusive.
+ * Dates are YYYY-MM-DD in Asia/Singapore.
+ */
+export async function getBookingsByCoachBetween(
+    coachId: string,
+    fromDate: string,
+    toDate: string,
+): Promise<Booking[]> {
+    const db = await getDb();
+    return db.collection<Booking>('bookings')
+        .find({ coach_id: coachId, date: { $gte: fromDate, $lte: toDate } })
+        .sort({ date: 1, start_time: 1 })
+        .toArray();
+}
+
+/**
+ * True when a booked or completed session still points at this slot.
+ * A cancelled booking does not count, so the slot can open again.
+ */
+export async function hasActiveBookingForSlot(slotId: string): Promise<boolean> {
+    const db = await getDb();
+    const found = await db.collection('bookings').findOne({
+        availability_slot_id: slotId,
+        status: { $in: ['booked', 'completed'] },
+    });
+    return !!found;
+}
+
 export async function getBookingsByCoach(
     coachId: string,
     date?: string

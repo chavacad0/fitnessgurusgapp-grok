@@ -264,7 +264,64 @@ export interface CoachAvailabilitySlot {
      * NEVER returned to clients. Examples: 'Lunch break', 'Personal appointment'.
      */
     blocked_reason?: string;
+    /**
+     * 'rules' means this slot was created from the coach's working hours.
+     * Older slots have no source. Those are left in place.
+     */
+    source?: 'rules';
     created_at: Date;
+}
+
+/**
+ * Weekly working hours, blocks, and one-off changes for one coach.
+ * Stored in the 'coach_availability_rules' collection. One document per coach.
+ * Times are Asia/Singapore wall-clock times. The timezone field is stored
+ * on every document so a reader does not have to guess.
+ */
+export type WeekdayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
+export interface AvailabilityTimeRange {
+    start: string; // HH:MM, 24h, Asia/Singapore
+    end: string;   // HH:MM, 24h, Asia/Singapore. Later the same day than start.
+}
+
+export interface WeekdayHours {
+    day: WeekdayKey;
+    enabled: boolean;
+    ranges: AvailabilityTimeRange[];
+}
+
+export interface AvailabilityBlock {
+    id: string;
+    date: string; // YYYY-MM-DD, Asia/Singapore
+    kind: 'range' | 'day_off';
+    start?: string;
+    end?: string;
+    /** Private to the coach. Clients never receive this. */
+    label?: string;
+}
+
+export interface AvailabilityOverride {
+    id: string;
+    date: string;
+    kind: 'extra' | 'closed';
+    ranges?: AvailabilityTimeRange[];
+    /** Coach note such as "public holiday". Not shown to clients. */
+    note?: string;
+}
+
+export interface CoachAvailabilityRules {
+    _id?: string;
+    coach_id: string;
+    timezone: 'Asia/Singapore';
+    /** True after the coach taps Save hours. Blocks alone do not turn this on. */
+    hours_saved: boolean;
+    slot_length_minutes: 30 | 45 | 60 | 90;
+    buffer_minutes: 0 | 10 | 15;
+    weekdays: WeekdayHours[];
+    blocks: AvailabilityBlock[];
+    overrides: AvailabilityOverride[];
+    updated_at: Date;
 }
 
 // ─── Booking ─────────────────────────────────────────────────────────────────

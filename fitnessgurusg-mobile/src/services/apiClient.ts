@@ -16,6 +16,9 @@ import {
     GoogleLoginResponse,
     ClientLoginResponse,
     CoachAvailabilitySlot,
+    AvailabilityRules,
+    AvailabilityWeekday,
+    CoachSchedule,
     BookingSlot,
     SessionStatusResponse,
     DashboardSummary,
@@ -809,6 +812,90 @@ export async function completeSession(clientId: string): Promise<{
  * GET /api/coach/availability?from=YYYY-MM-DD
  * Returns the coach's upcoming availability slots.
  */
+export async function getAvailabilityRules(): Promise<AvailabilityRules & { success: boolean }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/coach/availability/rules`, { headers });
+    return handleResponse(response);
+}
+
+export async function saveWorkingHours(weekdays: AvailabilityWeekday[]): Promise<AvailabilityRules & { success: boolean }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/coach/availability/rules/hours`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ weekdays }),
+    });
+    return handleResponse(response);
+}
+
+export async function saveSlotSettings(
+    slot_length_minutes: number,
+    buffer_minutes: number,
+): Promise<AvailabilityRules & { success: boolean }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/coach/availability/rules/slot-settings`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ slot_length_minutes, buffer_minutes }),
+    });
+    return handleResponse(response);
+}
+
+export async function addAvailabilityBlock(body: {
+    date: string;
+    kind: 'range' | 'day_off';
+    start?: string;
+    end?: string;
+    label?: string;
+}): Promise<AvailabilityRules & { success: boolean }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/coach/availability/rules/blocks`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+    });
+    return handleResponse(response);
+}
+
+export async function removeAvailabilityBlock(blockId: string): Promise<AvailabilityRules & { success: boolean }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/coach/availability/rules/blocks/${blockId}`, {
+        method: 'DELETE',
+        headers,
+    });
+    return handleResponse(response);
+}
+
+export async function addAvailabilityOverride(body: {
+    date: string;
+    kind: 'extra' | 'closed';
+    ranges?: Array<{ start: string; end: string }>;
+    note?: string;
+}): Promise<AvailabilityRules & { success: boolean }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/coach/availability/rules/overrides`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+    });
+    return handleResponse(response);
+}
+
+export async function removeAvailabilityOverride(overrideId: string): Promise<AvailabilityRules & { success: boolean }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/coach/availability/rules/overrides/${overrideId}`, {
+        method: 'DELETE',
+        headers,
+    });
+    return handleResponse(response);
+}
+
+export async function getCoachSchedule(date: string): Promise<CoachSchedule & { success: boolean }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/coach/schedule?date=${date}`, { headers });
+    return handleResponse(response);
+}
+
 export async function getCoachAvailability(fromDate?: string): Promise<{ success: boolean; slots: CoachAvailabilitySlot[]; count: number }> {
     const headers = await getAuthHeaders();
     const query   = fromDate ? `?from=${fromDate}` : '';
