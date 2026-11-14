@@ -8,6 +8,7 @@
     "test:auth": "tsx src/scripts/test-auth-regression.ts",
     "test:reliability": "NODE_ENV=test tsx src/test/reliabilityRegression.ts",
     "test:availability": "NODE_ENV=test tsx src/test/availabilityRegression.ts",
+    "test:best-times": "NODE_ENV=test tsx src/test/bestTimesRegression.ts",
     "test:photos": "NODE_ENV=test tsx src/test/photoAccessRegression.ts",
     "migrate:photos": "tsx src/scripts/migrate-photos.ts",
     "typecheck": "tsc --noEmit -p tsconfig.server.json",

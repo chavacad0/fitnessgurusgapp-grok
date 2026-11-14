@@ -567,11 +567,12 @@ interface ActionPickerProps {
     onWorkingHours: () => void;
     onSlotLength:   () => void;
     onOneOff:       () => void;
+    onRequests:     () => void;
     onAddSlot:      () => void;
     onBookClient:   () => void;
 }
 
-function ActionPickerModal({ visible, onClose, onWorkingHours, onSlotLength, onOneOff, onAddSlot, onBookClient }: ActionPickerProps) {
+function ActionPickerModal({ visible, onClose, onWorkingHours, onSlotLength, onOneOff, onRequests, onAddSlot, onBookClient }: ActionPickerProps) {
     const go = (fn: () => void) => { onClose(); fn(); };
     return (
         <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -597,6 +598,16 @@ function ActionPickerModal({ visible, onClose, onWorkingHours, onSlotLength, onO
                     <View style={ap.optionText}>
                         <Text style={ap.optionLabel}>Slot length</Text>
                         <Text style={ap.optionSub}>Session length and the buffer after it</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={GRAY} />
+                </TouchableOpacity>
+                <TouchableOpacity style={ap.option} onPress={() => go(onRequests)} accessibilityRole="button">
+                    <View style={[ap.iconWrap, { backgroundColor: MINT }]}>
+                        <Ionicons name="mail-outline" size={20} color={TEAL} />
+                    </View>
+                    <View style={ap.optionText}>
+                        <Text style={ap.optionLabel}>Time requests</Text>
+                        <Text style={ap.optionSub}>Nothing is booked until you confirm</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={16} color={GRAY} />
                 </TouchableOpacity>
@@ -1611,6 +1622,15 @@ export default function BookingScreen() {
                             <Text style={[tl.openTitle, fontStyle(fonts.headingSemibold, '600')]}>Open</Text>
                             <Text style={tl.openSub}>{item.duration_minutes} min slot</Text>
                         </View>
+                        {!!item.good_for?.length && (
+                            <View style={tl.goodFor}>
+                                <Text style={tl.goodForText} numberOfLines={1}>
+                                    {item.good_for.length === 1
+                                        ? `Good for ${item.good_for[0]}`
+                                        : `Good for ${item.good_for[0]} +${item.good_for.length - 1}`}
+                                </Text>
+                            </View>
+                        )}
                         <TouchableOpacity
                             style={tl.bookBtn}
                             onPress={() => openQuickBook(item)}
@@ -1834,6 +1854,50 @@ export default function BookingScreen() {
                     />
                 }
             >
+                {schedule?.heat && (
+                    <View style={tl.heatCard}>
+                        <Text style={[tl.heatTitle, fontStyle(fonts.headingSemibold, '600')]}>When clients are usually free</Text>
+                        <Text style={tl.heatSub}>Built from My best times, not from booked sessions.</Text>
+                        <View style={tl.bars}>
+                            {(schedule.heat.counts.length ? schedule.heat.counts : Array.from({ length: 15 }, () => 0)).map((count, index) => {
+                                const max = Math.max(1, ...schedule.heat!.counts);
+                                return (
+                                    <View key={index} style={tl.barTrack}>
+                                        <View style={[tl.bar, { height: 8 + (count / max) * 36, opacity: count ? 0.45 + (count / max) * 0.55 : 0.25 }]} />
+                                    </View>
+                                );
+                            })}
+                        </View>
+                        <View style={tl.barLabels}>
+                            <Text style={tl.barLabel}>6 AM</Text>
+                            <Text style={tl.barLabel}>9</Text>
+                            <Text style={tl.barLabel}>12</Text>
+                            <Text style={tl.barLabel}>3</Text>
+                            <Text style={tl.barLabel}>6 PM</Text>
+                            <Text style={tl.barLabel}>9</Text>
+                        </View>
+                        <View style={tl.scaleRow}>
+                            <Text style={tl.scale}>Quieter</Text>
+                            <View style={tl.scaleBar} />
+                            <Text style={tl.scale}>Busier</Text>
+                        </View>
+                        {!schedule.heat.has_preferences && (
+                            <Text style={tl.heatSub}>No best times saved yet.</Text>
+                        )}
+                        {!!schedule.heat.busiest_title && (
+                            <View style={tl.heatNote}>
+                                <Text style={tl.heatNoteTitle}>{schedule.heat.busiest_title}</Text>
+                                <Text style={tl.heatSub}>{schedule.heat.busiest_body}</Text>
+                            </View>
+                        )}
+                        {!!schedule.heat.quieter_title && (
+                            <View style={tl.heatNote}>
+                                <Text style={tl.heatNoteTitle}>{schedule.heat.quieter_title}</Text>
+                                <Text style={tl.heatSub}>{schedule.heat.quieter_body}</Text>
+                            </View>
+                        )}
+                    </View>
+                )}
                 <View style={tl.dayHead}>
                     <Text style={[tl.dayTitle, fontStyle(fonts.bodySemibold, '600')]}>{dayTitle}</Text>
                     <Text style={tl.dayCount}>{countOpen}</Text>
@@ -1878,6 +1942,7 @@ export default function BookingScreen() {
                 onWorkingHours={() => navigation.navigate('WorkingHours')}
                 onSlotLength={() => navigation.navigate('SlotLength')}
                 onOneOff={() => navigation.navigate('OneOffChanges')}
+                onRequests={() => navigation.navigate('TimeRequests')}
                 onAddSlot={() => setShowAddAvailability(true)}
                 onBookClient={() => openQuickBook()}
             />
@@ -2104,6 +2169,25 @@ const tl = StyleSheet.create({
         backgroundColor: '#0F766E', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8,
     },
     bookTxt: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    goodFor: {
+        backgroundColor: '#FFFFFF', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4, marginRight: 6, maxWidth: 120,
+    },
+    goodForText: { color: '#4F7F71', fontSize: 11, fontWeight: '700' },
+    heatCard: {
+        marginHorizontal: 16, marginBottom: 12, backgroundColor: '#FFFFFF', borderRadius: 16, padding: 14,
+    },
+    heatTitle: { color: '#183A4A', fontSize: 16 },
+    heatSub: { color: '#6B7280', fontSize: 12, lineHeight: 17, marginTop: 4 },
+    bars: { flexDirection: 'row', alignItems: 'flex-end', height: 52, gap: 3, marginTop: 12 },
+    barTrack: { flex: 1, justifyContent: 'flex-end' },
+    bar: { backgroundColor: '#0F766E', borderRadius: 3 },
+    barLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
+    barLabel: { color: '#9CA3AF', fontSize: 10 },
+    scaleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+    scale: { color: '#9CA3AF', fontSize: 11 },
+    scaleBar: { flex: 1, height: 4, borderRadius: 2, backgroundColor: '#E6F7F1' },
+    heatNote: { marginTop: 10 },
+    heatNoteTitle: { color: '#183A4A', fontSize: 14, fontWeight: '700' },
     bookedCard: {
         flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
         backgroundColor: '#FFFFFF', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 12,

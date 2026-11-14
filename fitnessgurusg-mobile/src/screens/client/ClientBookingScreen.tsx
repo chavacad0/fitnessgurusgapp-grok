@@ -26,7 +26,7 @@ import {
     KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, radius, typography, shadows } from '../../theme/theme';
@@ -413,6 +413,7 @@ const cc = StyleSheet.create({
 
 export default function ClientBookingScreen() {
     const { updateUser } = useAuth();
+    const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
     const dates = buildDateWindow();
 
@@ -575,6 +576,18 @@ export default function ClientBookingScreen() {
                     />
                 }
             >
+                <View style={s.timeLinks}>
+                    <TouchableOpacity style={s.timeLink} onPress={() => navigation.navigate('ClientBestTimes')} accessibilityRole="button">
+                        <Text style={s.timeLinkText}>My best times</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={s.timeLink} onPress={() => navigation.navigate('ClientRequestTime')} accessibilityRole="button">
+                        <Text style={s.timeLinkText}>Request a time</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={s.timeLink} onPress={() => navigation.navigate('ClientAwayDates')} accessibilityRole="button">
+                        <Text style={s.timeLinkText}>Away dates</Text>
+                    </TouchableOpacity>
+                </View>
+
                 {/* ── Selected date heading ────────────────────────────────── */}
                 <View style={s.dateHeadRow}>
                     <Text style={s.dateHead}>{fmtDateLong(selectedDate)}</Text>
@@ -680,6 +693,13 @@ const s = StyleSheet.create({
     heroSub: { ...typography.body, color: 'rgba(255,255,255,0.78)', marginTop: 4 },
     scroll:  { flex: 1 },
     content: { padding: spacing.base },
+    timeLinks: { flexDirection: 'row', gap: 8, marginBottom: spacing.base },
+    timeLink: {
+        flex: 1, backgroundColor: colors.surface, borderRadius: radius.md,
+        borderWidth: 1, borderColor: colors.border, paddingVertical: 10, paddingHorizontal: 6,
+        alignItems: 'center',
+    },
+    timeLinkText: { color: colors.accent, fontSize: 12, fontWeight: '700', textAlign: 'center' },
 
     // ── States ────────────────────────────────────────────────────────────────
     centred:  { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.base },

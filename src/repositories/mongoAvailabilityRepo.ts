@@ -76,6 +76,28 @@ export async function getAvailabilityBetween(
  * source: 'rules' lets a later sync remove it again. Booked slots are never
  * inserted here.
  */
+/**
+ * An open slot at this exact time, if one exists for this coach.
+ * Used when a coach accepts a time request so the booking claims the
+ * slot that is already on the schedule.
+ */
+export async function findOpenSlot(
+    coachId: string,
+    date: string,
+    startTime: string,
+    endTime: string,
+): Promise<CoachAvailabilitySlot | null> {
+    const db = await getDb();
+    return db.collection<CoachAvailabilitySlot>('coach_availability').findOne({
+        coach_id: coachId,
+        date,
+        start_time: startTime,
+        end_time: endTime,
+        is_booked: false,
+        status: { $nin: ['blocked', 'booked'] },
+    });
+}
+
 export async function insertGeneratedSlot(
     coachId: string,
     slot: { date: string; start_time: string; end_time: string },
