@@ -15,6 +15,9 @@ import PlanSelectionScreen from '../screens/coach/PlanSelectionScreen';
 import PaymentConfirmScreen from '../screens/coach/PaymentConfirmScreen';
 import ClientPaymentDashboardScreen from '../screens/coach/ClientPaymentDashboardScreen';
 import AssignWorkoutScreen from '../screens/coach/AssignWorkoutScreen';
+import WorkingHoursScreen from '../screens/coach/WorkingHoursScreen';
+import SlotLengthScreen from '../screens/coach/SlotLengthScreen';
+import OneOffChangesScreen from '../screens/coach/OneOffChangesScreen';
 import { FIRST_LOGIN_KEY } from '../config/constants';
 import { colors, typography } from '../theme/theme';
 
@@ -104,6 +107,21 @@ function CoachNavigator() {
                 name="AssignWorkout"
                 component={AssignWorkoutScreen}
                 options={{ title: 'Assign Workout', presentation: 'card' }}
+            />
+            <CoachStack.Screen
+                name="WorkingHours"
+                component={WorkingHoursScreen}
+                options={{ headerShown: false, presentation: 'card' }}
+            />
+            <CoachStack.Screen
+                name="SlotLength"
+                component={SlotLengthScreen}
+                options={{ headerShown: false, presentation: 'card' }}
+            />
+            <CoachStack.Screen
+                name="OneOffChanges"
+                component={OneOffChangesScreen}
+                options={{ headerShown: false, presentation: 'card' }}
             />
         </CoachStack.Navigator>
     );

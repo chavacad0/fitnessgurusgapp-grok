@@ -124,6 +124,12 @@ async function initIndexes(db: Db): Promise<void> {
             { name: 'availability_by_coach_date' }
         );
 
+        // One working-hours document per coach (weekly rules, blocks, one-off changes).
+        await db.collection('coach_availability_rules').createIndex(
+            { coach_id: 1 },
+            { unique: true, name: 'availability_rules_by_coach' }
+        );
+
         // bookings
         //  → Dashboard and bookings list filter by coach_id + date.
         //  → Client view filters by client_id + status.

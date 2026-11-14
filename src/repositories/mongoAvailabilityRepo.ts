@@ -55,6 +55,67 @@ export async function getOverlappingSlots(
  * Defaults fromDate to today (SGT) when not provided.
  * Returns slots ordered by date + start_time ascending.
  */
+/**
+ * Slots for one coach between two dates, inclusive. Dates are YYYY-MM-DD
+ * in Asia/Singapore. The caller decides the window.
+ */
+export async function getAvailabilityBetween(
+    coachId: string,
+    fromDate: string,
+    toDate: string,
+): Promise<CoachAvailabilitySlot[]> {
+    const db = await getDb();
+    return db.collection<CoachAvailabilitySlot>('coach_availability')
+        .find({ coach_id: coachId, date: { $gte: fromDate, $lte: toDate } })
+        .sort({ date: 1, start_time: 1 })
+        .toArray();
+}
+
+/**
+ * Inserts one open slot that came from working-hours rules.
+ * source: 'rules' lets a later sync remove it again. Booked slots are never
+ * inserted here.
+ */
+export async function insertGeneratedSlot(
+    coachId: string,
+    slot: { date: string; start_time: string; end_time: string },
+): Promise<string> {
+    const db = await getDb();
+    const doc: CoachAvailabilitySlot = {
+        coach_id: coachId,
+        date: slot.date,
+        start_time: slot.start_time,
+        end_time: slot.end_time,
+        is_booked: false,
+        status: 'available',
+        source: 'rules',
+        created_at: new Date(),
+    };
+    const result = await db.collection<CoachAvailabilitySlot>('coach_availability')
+        .insertOne(doc as any);
+    return result.insertedId.toString();
+}
+
+/**
+ * Removes one rules-generated slot that is still open and belongs to this coach.
+ * Returns true when a document was deleted.
+ */
+export async function deleteGeneratedSlot(coachId: string, slotId: string): Promise<boolean> {
+    const db = await getDb();
+    try {
+        const result = await db.collection('coach_availability').deleteOne({
+            _id: new ObjectId(slotId) as any,
+            coach_id: coachId,
+            source: 'rules',
+            is_booked: false,
+            status: { $ne: 'booked' },
+        });
+        return result.deletedCount === 1;
+    } catch {
+        return false;
+    }
+}
+
 export async function getAvailabilityByCoach(
     coachId: string,
     fromDate?: string

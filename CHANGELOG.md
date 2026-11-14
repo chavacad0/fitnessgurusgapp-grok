@@ -6,14 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ## How to update this file
 
-- While a pull request is open, add one short entry under **Unreleased / in review**. Link the pull request. Say what a person using the app will notice.
-- When that pull request merges, move the entry into a new dated section (`## [YYYY-MM-DD]`) and take it out of Unreleased. Do not rewrite older dated sections.
+- Add one short entry under today's date (`## [YYYY-MM-DD]`). Link the pull request. Say what a person using the app will notice. If that date already has a section, add the line there. Do not leave the entry under Unreleased.
+- Do not rewrite older dated sections.
 - Group lines as Added, Changed, or Fixed when that makes the list easier to scan.
 - Leave out secrets, tokens, and personal data. Open problems belong in [docs/AUDIT.md](docs/AUDIT.md), not here, until a change actually fixes them.
 
 ## [Unreleased]
 
 ## [2026-11-14]
+
+### Added
+
+- [Pull request #27](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/27) — Coaches can set the hours they actually work, the session length (30, 45, 60, or 90 minutes), and a buffer after each session (0, 10, or 15 minutes). They can block time, or open extra slots or close one date, without changing the weekly hours. The schedule lists those times in a calmer timeline. If working hours are not saved yet, the day is not filled with automatic slots, and bookings that are already there stay visible. Times are kept in Singapore time. A coach only edits their own hours.
 
 ### Changed
 

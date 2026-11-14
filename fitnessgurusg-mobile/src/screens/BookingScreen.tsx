@@ -17,14 +17,14 @@
  *
  * ─── Data strategy ────────────────────────────────────────────────────────
  *    Parallel fetch: getAvailability(today) + getDashboard()
- *    Available slots = availability windows that do NOT overlap any booking.
- *    Falls back to generated hourly grid if no availability slots are set.
+ *    Open slots come from the coach's working hours. When hours are not
+ *    saved, the day is not filled with an automatic grid. Bookings that
+ *    already exist stay on the timeline.
  *
  * ─── Color system ─────────────────────────────────────────────────────────
- *    Green  (#16A34A) = open / available / done
- *    Navy   (#183A4A) = booked / upcoming
- *    Red    (#DC2626) = missed / cancelled
- *    Navy   (#1B3A4B) = primary chrome
+ *    Teal   (#0F766E) = open slots and actions
+ *    Mint   (#E6F7F1) = open-slot cards
+ *    Navy   (#183A4A) = booked rows and chrome
  */
 
 import React, { useCallback, useEffect, useMemo, useState, memo } from 'react';
@@ -38,33 +38,37 @@ import {
     RefreshControl,
     Linking,
     Modal,
-    SectionList,
     TextInput,
+    Switch,
     KeyboardAvoidingView,
     Platform,
     ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/theme';
 import {
-    getDashboard,
-    getAvailability,
     completeBooking,
     cancelBooking,
     rescheduleBooking,
-    blockAvailabilitySlot,
     unblockAvailabilitySlot,
     createAvailabilitySlot,
+    getCoachSchedule,
+    addAvailabilityBlock,
+    removeAvailabilityBlock,
 } from '../services/apiClient';
-import { DashboardSummary, CoachAvailabilitySlot, DaySummary } from '../types';
+import { DashboardSummary, DaySummary, CoachSchedule, CoachScheduleItem } from '../types';
+import { fontStyle, useKitFonts } from '../theme/fonts';
 import QuickBookModal from './QuickBookModal';
 import MonthCalendar from '../components/MonthCalendar';
 
 // ─── Design tokens ─────────────────────────────────────────────────────────────
 
 const NAVY   = '#183A4A';  // Primary Navy — per spec
+const TEAL   = '#0F766E';
+const MINT   = '#E6F7F1';
+const SAGE   = '#4F7F71';
 const GREEN  = '#16A34A';
 const BLUE   = '#183A4A';  // booked / upcoming — navy, not indigo
 const GRAY   = '#6B7280';
@@ -98,13 +102,6 @@ interface BlockedSlot {
     end_time:       string; // HH:MM
     blocked_reason?: string;
 }
-
-// ─── Slot generation ──────────────────────────────────────────────────────────
-
-/** Default working window when no availability slots are configured in DB. */
-const DEFAULT_START_HOUR = 7;   // 7:00 AM
-const DEFAULT_END_HOUR   = 18;  // 6:00 PM
-const SLOT_DURATION_MIN  = 60;  // 1 hour slots
 
 /**
  * toMinutes — converts "HH:MM" to total minutes since midnight.
@@ -172,71 +169,6 @@ function overlaps(
     bStart: string, bEnd: string,
 ): boolean {
     return aStart < bEnd && aEnd > bStart;
-}
-
-/**
- * slotsFromAvailability
- *
- * Strategy A (preferred): Coach has explicitly set availability windows via
- * POST /api/coach/availability. We expand each window into hourly sub-slots,
- * then filter out any slot that overlaps an existing booking.
- *
- * Strategy B (fallback): No availability windows exist in DB yet. We generate
- * hourly slots across DEFAULT_START_HOUR–DEFAULT_END_HOUR, then filter bookings
- * the same way. This ensures the screen is always useful even for new coaches.
- */
-function slotsFromAvailability(
-    dbSlots: CoachAvailabilitySlot[],
-    todayISO: string,
-    bookings: Booking[],
-): OpenSlot[] {
-    const activeBookings = bookings.filter(b => b.status === 'booked');
-
-    // Determine windows to expand
-    const todayDbSlots = dbSlots.filter(s => s.date === todayISO && !s.is_booked);
-
-    const windows: Array<{ start: string; end: string; source: 'db' | 'generated' }> =
-        todayDbSlots.length > 0
-            ? todayDbSlots.map(s => ({ start: s.start_time, end: s.end_time, source: 'db' as const }))
-            : [{ start: toHHMM(DEFAULT_START_HOUR * 60), end: toHHMM(DEFAULT_END_HOUR * 60), source: 'generated' as const }];
-
-    const result: OpenSlot[] = [];
-    // Guard against two DB windows that expand to the same start time
-    // (e.g. 09:00-11:00 and 08:00-10:00 both produce an "open-09:00" slot).
-    const seenStartTimes = new Set<string>();
-
-    for (const win of windows) {
-        let cursor = toMinutes(win.start);
-        const winEnd = toMinutes(win.end);
-
-        while (cursor + SLOT_DURATION_MIN <= winEnd) {
-            const slotStart = toHHMM(cursor);
-            const slotEnd   = toHHMM(cursor + SLOT_DURATION_MIN);
-
-            // Skip if any active booking overlaps this slot
-            const isBooked = activeBookings.some(b =>
-                overlaps(slotStart, slotEnd, b.start_time, b.end_time)
-            );
-
-            // Skip if we already added a slot with this start time (prevents
-            // duplicate slot_ids and the resulting SectionList key warning).
-            if (!isBooked && !seenStartTimes.has(slotStart)) {
-                seenStartTimes.add(slotStart);
-                result.push({
-                    kind:       'open',
-                    slot_id:    `open-${slotStart}`,
-                    start_time: slotStart,
-                    end_time:   slotEnd,
-                    source:     win.source,
-                });
-            }
-
-            cursor += SLOT_DURATION_MIN;
-        }
-    }
-
-    // Sort chronologically
-    return result.sort((a, b) => a.start_time.localeCompare(b.start_time));
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -632,17 +564,54 @@ const bs = StyleSheet.create({
 interface ActionPickerProps {
     visible:        boolean;
     onClose:        () => void;
+    onWorkingHours: () => void;
+    onSlotLength:   () => void;
+    onOneOff:       () => void;
     onAddSlot:      () => void;
     onBookClient:   () => void;
 }
 
-function ActionPickerModal({ visible, onClose, onAddSlot, onBookClient }: ActionPickerProps) {
+function ActionPickerModal({ visible, onClose, onWorkingHours, onSlotLength, onOneOff, onAddSlot, onBookClient }: ActionPickerProps) {
+    const go = (fn: () => void) => { onClose(); fn(); };
     return (
         <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
             <TouchableOpacity style={ap.overlay} activeOpacity={1} onPress={onClose} />
             <View style={ap.sheet}>
                 <View style={ap.handle} />
                 <Text style={ap.title}>What would you like to do?</Text>
+
+                <TouchableOpacity style={ap.option} onPress={() => go(onWorkingHours)} accessibilityRole="button">
+                    <View style={[ap.iconWrap, { backgroundColor: MINT }]}>
+                        <Ionicons name="time-outline" size={20} color={TEAL} />
+                    </View>
+                    <View style={ap.optionText}>
+                        <Text style={ap.optionLabel}>Working hours</Text>
+                        <Text style={ap.optionSub}>Set the hours you actually work</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={GRAY} />
+                </TouchableOpacity>
+                <TouchableOpacity style={ap.option} onPress={() => go(onSlotLength)} accessibilityRole="button">
+                    <View style={[ap.iconWrap, { backgroundColor: MINT }]}>
+                        <Ionicons name="hourglass-outline" size={20} color={TEAL} />
+                    </View>
+                    <View style={ap.optionText}>
+                        <Text style={ap.optionLabel}>Slot length</Text>
+                        <Text style={ap.optionSub}>Session length and the buffer after it</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={GRAY} />
+                </TouchableOpacity>
+                <TouchableOpacity style={ap.option} onPress={() => go(onOneOff)} accessibilityRole="button">
+                    <View style={[ap.iconWrap, { backgroundColor: MINT }]}>
+                        <Ionicons name="calendar-outline" size={20} color={TEAL} />
+                    </View>
+                    <View style={ap.optionText}>
+                        <Text style={ap.optionLabel}>One-off changes</Text>
+                        <Text style={ap.optionSub}>Open extra slots, or mark a date closed</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={GRAY} />
+                </TouchableOpacity>
+
+                <View style={ap.divider} />
 
                 {/* Add open slot */}
                 <TouchableOpacity
@@ -652,8 +621,8 @@ function ActionPickerModal({ visible, onClose, onAddSlot, onBookClient }: Action
                     accessibilityRole="button"
                     accessibilityLabel="Add open slot"
                 >
-                    <View style={[ap.iconWrap, { backgroundColor: '#F0FDF4' }]}>
-                        <Ionicons name="calendar-outline" size={20} color={GREEN} />
+                    <View style={[ap.iconWrap, { backgroundColor: MINT }]}>
+                        <Ionicons name="add-circle-outline" size={20} color={TEAL} />
                     </View>
                     <View style={ap.optionText}>
                         <Text style={ap.optionLabel}>Add open slot</Text>
@@ -672,8 +641,8 @@ function ActionPickerModal({ visible, onClose, onAddSlot, onBookClient }: Action
                     accessibilityRole="button"
                     accessibilityLabel="Book a client"
                 >
-                    <View style={[ap.iconWrap, { backgroundColor: '#EEF2FF' }]}>
-                        <Ionicons name="person-outline" size={20} color={BLUE} />
+                    <View style={[ap.iconWrap, { backgroundColor: MINT }]}>
+                        <Ionicons name="person-outline" size={20} color={TEAL} />
                     </View>
                     <View style={ap.optionText}>
                         <Text style={ap.optionLabel}>Book a client</Text>
@@ -1049,14 +1018,6 @@ const av = StyleSheet.create({
 // Keeps UX consistent with QuickBookModal.
 //
 
-const BLOCK_REASONS = [
-    'Personal appointment',
-    'Lunch break',
-    'Off day',
-    'Fully booked externally',
-    'Other',
-];
-
 interface BlockTimeModalProps {
     visible:      boolean;
     date:         string;   // YYYY-MM-DD pre-filled from selectedDate
@@ -1064,41 +1025,62 @@ interface BlockTimeModalProps {
     onBlocked:    () => void;
 }
 
-function BlockTimeModal({ visible, date, onClose, onBlocked }: BlockTimeModalProps) {
-    const [startTime, setStartTime] = useState('10:00');
-    const [endTime,   setEndTime]   = useState('11:00');
-    const [reason,    setReason]    = useState('');
-    const [submitting, setSubmitting] = useState(false);
+function blockDateLabel(date: string, long = false): string {
+    return new Date(`${date}T12:00:00+08:00`).toLocaleDateString('en-SG', {
+        weekday: long ? 'long' : 'short',
+        day: 'numeric',
+        month: 'short',
+        timeZone: 'Asia/Singapore',
+    });
+}
 
-    // Reset on each open
+function BlockTimeModal({ visible, date, onClose, onBlocked }: BlockTimeModalProps) {
+    const [lunch, setLunch] = useState(true);
+    const [dayOff, setDayOff] = useState(false);
+    const [custom, setCustom] = useState(false);
+    const [startTime, setStartTime] = useState('15:00');
+    const [endTime, setEndTime] = useState('16:00');
+    const [submitting, setSubmitting] = useState(false);
+    const isToday = date === todayISO();
+
     useEffect(() => {
         if (!visible) return;
-        setStartTime('10:00');
-        setEndTime('11:00');
-        setReason('');
+        setLunch(true);
+        setDayOff(false);
+        setCustom(false);
+        setStartTime('15:00');
+        setEndTime('16:00');
     }, [visible]);
 
     const handleSubmit = async () => {
-        if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
-            Alert.alert('Invalid time', 'Use format HH:MM (e.g. 10:00).');
+        if (!dayOff && !lunch && !custom) {
+            Alert.alert('Choose what to block', 'Turn on lunch, a whole day off, or custom hours.');
             return;
         }
-        if (startTime >= endTime) {
-            Alert.alert('Invalid time', 'End time must be after start time.');
+        if (custom && startTime >= endTime) {
+            Alert.alert('Check the times', 'The end time has to be later on the same day.');
             return;
         }
         setSubmitting(true);
         try {
-            await blockAvailabilitySlot({
-                date,
-                start_time: startTime,
-                end_time:   endTime,
-                reason:     reason.trim() || undefined,
-            });
+            if (dayOff) {
+                await addAvailabilityBlock({ date, kind: 'day_off', label: 'Whole day off' });
+            } else {
+                if (lunch) {
+                    await addAvailabilityBlock({
+                        date, kind: 'range', start: '12:00', end: '13:00', label: 'Lunch',
+                    });
+                }
+                if (custom) {
+                    await addAvailabilityBlock({
+                        date, kind: 'range', start: startTime, end: endTime, label: 'Custom hours',
+                    });
+                }
+            }
             onBlocked();
             onClose();
         } catch (err: any) {
-            Alert.alert('Block failed', err.message ?? 'Could not block this slot.');
+            Alert.alert('Could not block this time', err.message ?? 'Please try again.');
         } finally {
             setSubmitting(false);
         }
@@ -1113,79 +1095,58 @@ function BlockTimeModal({ visible, date, onClose, onBlocked }: BlockTimeModalPro
             >
                 <View style={btm.handle} />
                 <View style={btm.header}>
-                    <Text style={btm.title}>Block Time</Text>
-                    <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    <Text style={btm.title}>Block time</Text>
+                    <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityLabel="Close">
                         <Ionicons name="close" size={22} color={GRAY} />
                     </TouchableOpacity>
                 </View>
+                <Text style={btm.dateLine}>Kept private to you. Clients won't see the reason.</Text>
 
                 <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                    {/* Date display */}
-                    <Text style={btm.dateLine}>
-                        {new Date(`${date}T00:00:00+08:00`).toLocaleDateString('en-SG', {
-                            weekday: 'long', day: 'numeric', month: 'long',
-                            timeZone: 'Asia/Singapore',
-                        })}
-                    </Text>
-
-                    {/* Time inputs */}
-                    <View style={btm.timeRow}>
+                    <View style={btm.option}>
+                        <View style={btm.optionIcon}><Ionicons name="time-outline" size={18} color={TEAL} /></View>
                         <View style={{ flex: 1 }}>
-                            <Text style={btm.label}>START</Text>
-                            <TextInput
-                                style={btm.input}
-                                value={startTime}
-                                onChangeText={setStartTime}
-                                placeholder="10:00"
-                                placeholderTextColor="#9CA3AF"
-                                keyboardType="numbers-and-punctuation"
-                                maxLength={5}
-                            />
+                            <Text style={btm.optionTitle}>Lunch</Text>
+                            <Text style={btm.optionSub}>{isToday ? 'Today' : blockDateLabel(date)} · 12:00–1:00 PM</Text>
                         </View>
-                        <View style={btm.timeSep}>
-                            <Text style={btm.timeSepTxt}>→</Text>
-                        </View>
+                        <Switch value={lunch && !dayOff} onValueChange={setLunch} disabled={dayOff} trackColor={{ false: '#D1D5DB', true: TEAL }} thumbColor="#FFFFFF" />
+                    </View>
+                    <View style={btm.option}>
+                        <View style={btm.optionIcon}><Ionicons name="calendar-outline" size={18} color={TEAL} /></View>
                         <View style={{ flex: 1 }}>
-                            <Text style={btm.label}>END</Text>
-                            <TextInput
-                                style={btm.input}
-                                value={endTime}
-                                onChangeText={setEndTime}
-                                placeholder="11:00"
-                                placeholderTextColor="#9CA3AF"
-                                keyboardType="numbers-and-punctuation"
-                                maxLength={5}
-                            />
+                            <Text style={btm.optionTitle}>Whole day off</Text>
+                            <Text style={btm.optionSub}>Blocks {blockDateLabel(date, true)}</Text>
                         </View>
+                        <Switch value={dayOff} onValueChange={setDayOff} trackColor={{ false: '#D1D5DB', true: TEAL }} thumbColor="#FFFFFF" />
                     </View>
-
-                    {/* Reason picker */}
-                    <Text style={btm.label}>REASON (private, optional)</Text>
-                    <View style={btm.reasonGrid}>
-                        {BLOCK_REASONS.map(r => (
-                            <TouchableOpacity
-                                key={r}
-                                style={[btm.reasonChip, reason === r && btm.reasonChipActive]}
-                                onPress={() => setReason(prev => prev === r ? '' : r)}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={[btm.reasonChipTxt, reason === r && btm.reasonChipTxtActive]}>{r}</Text>
-                            </TouchableOpacity>
-                        ))}
+                    <View style={btm.option}>
+                        <View style={btm.optionIcon}><Ionicons name="create-outline" size={18} color={TEAL} /></View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={btm.optionTitle}>Custom hours</Text>
+                            <Text style={btm.optionSub}>Pick a start and end, any time of day</Text>
+                        </View>
+                        <Switch value={custom && !dayOff} onValueChange={setCustom} disabled={dayOff} trackColor={{ false: '#D1D5DB', true: TEAL }} thumbColor="#FFFFFF" />
                     </View>
+                    {custom && !dayOff && (
+                        <View style={btm.timeRow}>
+                            <TextInput style={btm.input} value={startTime} onChangeText={setStartTime} placeholder="15:00" placeholderTextColor="#9CA3AF" maxLength={5} accessibilityLabel="Custom start" />
+                            <TextInput style={btm.input} value={endTime} onChangeText={setEndTime} placeholder="16:00" placeholderTextColor="#9CA3AF" maxLength={5} accessibilityLabel="Custom end" />
+                        </View>
+                    )}
 
-                    {/* CTA */}
                     <TouchableOpacity
                         style={[btm.blockBtn, submitting && { opacity: 0.5 }]}
                         onPress={handleSubmit}
                         disabled={submitting}
                         activeOpacity={0.85}
+                        accessibilityRole="button"
+                        accessibilityLabel="Block time"
                     >
                         {submitting
                             ? <ActivityIndicator color="#fff" />
                             : <>
-                                <Ionicons name="lock-closed" size={16} color="#fff" />
-                                <Text style={btm.blockBtnLabel}>Block This Time</Text>
+                                <Ionicons name="ban-outline" size={16} color="#fff" />
+                                <Text style={btm.blockBtnLabel}>Block time</Text>
                               </>
                         }
                     </TouchableOpacity>
@@ -1238,10 +1199,21 @@ const btm = StyleSheet.create({
     reasonChipTxt:      { fontSize: 12, fontWeight: '500', color: GRAY },
     reasonChipTxtActive: { color: '#fff' },
 
+    option: {
+        flexDirection: 'row', alignItems: 'center', gap: 10,
+        borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 14,
+        padding: 12, marginBottom: 8,
+    },
+    optionIcon: {
+        width: 36, height: 36, borderRadius: 10, backgroundColor: MINT,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    optionTitle: { fontSize: 15, fontWeight: '700', color: NAVY },
+    optionSub: { fontSize: 12, color: GRAY, marginTop: 2 },
     blockBtn: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-        gap: 8, backgroundColor: GRAY, borderRadius: 14,
-        paddingVertical: 14, marginTop: 20,
+        gap: 8, backgroundColor: TEAL, borderRadius: 14,
+        paddingVertical: 14, marginTop: 12,
     },
     blockBtnLabel: { fontSize: 15, fontWeight: '700', color: '#fff' },
 });
@@ -1450,16 +1422,19 @@ const am = StyleSheet.create({
 
 export default function BookingScreen() {
     const insets = useSafeAreaInsets();
+    const navigation = useNavigation<any>();
+    const fonts = useKitFonts();
 
     // ── State ─────────────────────────────────────────────────────────────────
     const [loading,          setLoading]          = useState(true);
     const [refreshing,       setRefreshing]       = useState(false);
     const [error,            setError]            = useState<string | null>(null);
-    const [dbAvailability,   setDbAvailability]   = useState<CoachAvailabilitySlot[]>([]);
-    const [bookings,         setBookings]         = useState<Booking[]>([]);
+    const [schedule,         setSchedule]         = useState<CoachSchedule | null>(null);
     const [activeSession,      setActiveSession]      = useState<Booking | null>(null);
     const [showQuickBook,      setShowQuickBook]      = useState(false);
     const [selectedSlotTime,   setSelectedSlotTime]   = useState<string | undefined>(undefined);
+    const [selectedSlotEnd,    setSelectedSlotEnd]    = useState<string | undefined>(undefined);
+    const [selectedSlotId,     setSelectedSlotId]     = useState<string | undefined>(undefined);
     /** Action picker: shown when coach taps + FAB. Lets coach choose Add Slot vs Book Client. */
     const [showActionPicker,   setShowActionPicker]   = useState(false);
     /** Add Availability modal: create an open slot with no client required. */
@@ -1479,17 +1454,8 @@ export default function BookingScreen() {
         setError(null);
 
         try {
-            // Parallel: availability windows + bookings for the selected date
-            const [availResp, dashResp] = await Promise.all([
-                getAvailability(selectedDate),
-                getDashboard(selectedDate),
-            ]);
-
-            console.log('[BookingScreen] availability slots:', availResp.slots?.length ?? 0);
-            console.log('[BookingScreen] bookings for', selectedDate, ':', dashResp.today_bookings?.length ?? 0);
-
-            setDbAvailability(availResp.slots ?? []);
-            setBookings(dashResp.today_bookings ?? []);
+            const next = await getCoachSchedule(selectedDate);
+            setSchedule(next);
         } catch (err: any) {
             console.error('[BookingScreen] fetch error:', err.message);
             setError(err.message ?? 'Failed to load schedule.');
@@ -1512,108 +1478,48 @@ export default function BookingScreen() {
 
     // ── Derived data ──────────────────────────────────────────────────────────
 
-    /**
-     * openSlots — true bookable windows after removing booking overlaps.
-     * Uses selectedDate (not today) so it works for any chosen date.
-     */
-    const openSlots = useMemo(
-        () => slotsFromAvailability(
-            dbAvailability.filter(s => (s.status ?? 'available') !== 'blocked'),
-            selectedDate,
-            bookings,
-        ),
-        [dbAvailability, selectedDate, bookings],
-    );
+    const items = schedule?.items ?? [];
+    const countOpen = schedule?.counts.open ?? 0;
+    const countBooked = schedule?.counts.booked ?? 0;
+    const countDone = schedule?.counts.done ?? 0;
+    const countMissed = schedule?.counts.missed ?? 0;
+    const hoursSaved = schedule?.hours_saved === true;
+    const showSetHours = !hoursSaved
+        && countOpen === 0
+        && !items.some(item => item.kind === 'closed' || item.kind === 'day_off');
 
-    /**
-     * blockedSlots — slots the coach has explicitly blocked for selectedDate.
-     * Only shown on the coach screen — never sent to clients.
-     */
-    const blockedSlots: BlockedSlot[] = useMemo(
-        () => dbAvailability
-            .filter(s => s.status === 'blocked' && s.date === selectedDate)
-            .sort((a, b) => a.start_time.localeCompare(b.start_time))
-            .map(s => ({
-                kind:           'blocked' as const,
-                slot_id:        s._id ?? s.start_time,
-                start_time:     s.start_time,
-                end_time:       s.end_time,
-                blocked_reason: s.blocked_reason,
-            })),
-        [dbAvailability, selectedDate],
-    );
-
-    /**
-     * sortedBookings — selected date's bookings sorted by start time.
-     * Split: upcoming first, then done/missed.
-     */
-    const sortedBookings = useMemo(() => {
-        const upcoming = bookings.filter(b => b.status === 'booked')
-            .sort((a, b) => a.start_time.localeCompare(b.start_time));
-        const past = bookings.filter(b => b.status !== 'booked')
-            .sort((a, b) => a.start_time.localeCompare(b.start_time));
-        return [...upcoming, ...past];
-    }, [bookings]);
-
-    // Summary counts for chrome pills
-    const countOpen    = openSlots.length;
-    const countBooked  = bookings.filter(b => b.status === 'booked').length;
-    const countDone    = bookings.filter(b => b.status === 'completed').length;
-    const countMissed  = bookings.filter(b => b.status === 'cancelled').length;
-    const countBlocked = blockedSlots.length;
-
-    // ── Month-level summary for MonthCalendar dot indicators ────────────────
-    //
-    // monthStart changes whenever the coach navigates to a different month.
-    // We fetch the whole month's availability once and build a lightweight
-    // DaySummary map. This is read-only and never touches loading/error state.
-    //
-    const [monthSummaries, setMonthSummaries] = useState<Record<string, DaySummary>>({});
-
-    const monthStart = useMemo(
-        () => selectedDate.slice(0, 7) + '-01',
-        [selectedDate],
-    );
-
-    useEffect(() => {
-        let cancelled = false;
-        getAvailability(monthStart).then(resp => {
-            if (cancelled) return;
-            const map: Record<string, DaySummary> = {};
-            for (const slot of resp.slots ?? []) {
-                if (!map[slot.date]) map[slot.date] = { date: slot.date };
-                if (slot.status === 'blocked') {
-                    // Gray dot: blocked time
-                    map[slot.date].missedCount = (map[slot.date].missedCount ?? 0) + 1;
-                } else if (!slot.is_booked) {
-                    map[slot.date].openCount = (map[slot.date].openCount ?? 0) + 1;
-                } else {
-                    map[slot.date].bookedCount = (map[slot.date].bookedCount ?? 0) + 1;
-                }
-            }
-            setMonthSummaries(map);
-        }).catch(() => { /* silent — dots are best-effort */ });
-        return () => { cancelled = true; };
-    }, [monthStart]); // re-fetches when the coach navigates to a different month
+    const monthSummaries = useMemo(() => {
+        const map: Record<string, DaySummary> = {};
+        for (const [date, counts] of Object.entries(schedule?.month ?? {})) {
+            map[date] = {
+                date,
+                openCount: counts.open,
+                bookedCount: counts.booked,
+                doneCount: counts.done,
+                missedCount: counts.missed,
+            };
+        }
+        return map;
+    }, [schedule]);
 
     // Block time modal state
     const [showBlockModal, setShowBlockModal] = useState(false);
 
-    const handleUnblock = useCallback((slotId: string) => {
+    const handleRemoveBlock = useCallback((blockId: string, legacy: boolean) => {
         Alert.alert(
-            'Unblock this slot?',
-            'This will make the time available for booking again.',
+            'Remove this block?',
+            'Clients still will not see the reason.',
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
-                    text: 'Unblock',
-                    style: 'destructive',
+                    text: 'Remove',
                     onPress: async () => {
                         try {
-                            await unblockAvailabilitySlot(slotId);
+                            if (legacy) await unblockAvailabilitySlot(blockId.replace(/^legacy:/, ''));
+                            else await removeAvailabilityBlock(blockId);
                             fetchData(true);
                         } catch (err: any) {
-                            Alert.alert('Error', err.message ?? 'Could not unblock.');
+                            Alert.alert('Could not remove the block', err.message ?? 'Please try again.');
                         }
                     },
                 },
@@ -1650,8 +1556,10 @@ export default function BookingScreen() {
 
     // ── Open QuickBookModal ───────────────────────────────────────────────────
 
-    const openQuickBook = useCallback((slotTime?: string) => {
-        setSelectedSlotTime(slotTime);
+    const openQuickBook = useCallback((slot?: { start_time: string; end_time: string; slot_id?: string }) => {
+        setSelectedSlotTime(slot?.start_time);
+        setSelectedSlotEnd(slot?.end_time);
+        setSelectedSlotId(slot?.slot_id || undefined);
         setShowQuickBook(true);
     }, []);
 
@@ -1680,43 +1588,117 @@ export default function BookingScreen() {
         );
     }
 
-    // ── SectionList data ──────────────────────────────────────────────────────
+    const dayTitle = new Date(`${selectedDate}T12:00:00+08:00`).toLocaleDateString('en-SG', {
+        weekday: 'long', day: 'numeric', month: 'short', timeZone: 'Asia/Singapore',
+    }).toUpperCase();
 
-    type SectionItem = OpenSlot | Booking | BlockedSlot;
+    const clockOf = (hhmm: string) => {
+        const [h, m] = hhmm.split(':').map(Number);
+        return { time: `${h % 12 || 12}:${String(m).padStart(2, '0')}`, period: h >= 12 ? 'PM' : 'AM' };
+    };
 
-    const sections: Array<{
-        key:    string;
-        title:  string;
-        count:  number;
-        color:  string;
-        icon:   string;
-        data:   SectionItem[];
-    }> = [
-        {
-            key:   'open',
-            title: 'Open Slots — Tap to Book',
-            count: countOpen,
-            color: GREEN,
-            icon:  'calendar-outline',
-            data:  openSlots,
-        },
-        {
-            key:   'booked',
-            title: isToday ? "Today's Sessions" : `Sessions — ${formatDayLabel(selectedDate)}`,
-            count: sortedBookings.length,
-            color: BLUE,
-            icon:  'people-outline',
-            data:  sortedBookings,
-        },
-        {
-            key:   'blocked',
-            title: 'Blocked Time',
-            count: countBlocked,
-            color: GRAY,
-            icon:  'lock-closed-outline',
-            data:  blockedSlots,
-        },
-    ];
+    const renderScheduleItem = (item: CoachScheduleItem, index: number) => {
+        if (item.kind === 'open') {
+            const c = clockOf(item.start_time);
+            return (
+                <View key={`open-${item.slot_id}-${index}`} style={tl.row}>
+                    <View style={tl.timeCol}>
+                        <Text style={tl.time}>{c.time}</Text>
+                        <Text style={tl.period}>{c.period}</Text>
+                    </View>
+                    <View style={tl.openCard}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={[tl.openTitle, fontStyle(fonts.headingSemibold, '600')]}>Open</Text>
+                            <Text style={tl.openSub}>{item.duration_minutes} min slot</Text>
+                        </View>
+                        <TouchableOpacity
+                            style={tl.bookBtn}
+                            onPress={() => openQuickBook(item)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Book ${c.time} ${c.period}`}
+                        >
+                            <Ionicons name="add" size={14} color="#FFFFFF" />
+                            <Text style={tl.bookTxt}>Book</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            );
+        }
+        if (item.kind === 'booked') {
+            const c = clockOf(item.start_time);
+            const booking: Booking = {
+                booking_id: item.booking_id,
+                client_id: item.client_id,
+                client_name: item.client_name,
+                start_time: item.start_time,
+                end_time: item.end_time,
+                status: item.status,
+            };
+            return (
+                <TouchableOpacity
+                    key={`booked-${item.booking_id}-${index}`}
+                    style={tl.row}
+                    onPress={() => setActiveSession(booking)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${item.client_name} session`}
+                >
+                    <View style={tl.timeCol}>
+                        <Text style={tl.timeStrong}>{c.time}</Text>
+                        <Text style={tl.period}>{c.period}</Text>
+                    </View>
+                    <View style={tl.bookedCard}>
+                        <View style={tl.avatar}>
+                            <Text style={tl.avatarTxt}>{initials(item.client_name || 'C')}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={[tl.client, fontStyle(fonts.headingSemibold, '600')]} numberOfLines={1}>{item.client_name}</Text>
+                            <Text style={tl.sessionMeta}>Session · {item.duration_minutes} min</Text>
+                        </View>
+                        {item.status === 'completed' ? <Text style={tl.status}>Done</Text> : null}
+                        {item.status === 'cancelled' ? <Text style={tl.status}>Missed</Text> : null}
+                    </View>
+                </TouchableOpacity>
+            );
+        }
+        if (item.kind === 'blocked') {
+            const c = clockOf(item.start_time);
+            return (
+                <TouchableOpacity
+                    key={`block-${item.block_id}-${index}`}
+                    style={tl.row}
+                    onPress={() => handleRemoveBlock(item.block_id, item.legacy)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${item.label}. Blocked, private to you.`}
+                >
+                    <View style={tl.timeCol}>
+                        <Text style={tl.time}>{c.time}</Text>
+                        <Text style={tl.period}>{c.period}</Text>
+                    </View>
+                    <View style={tl.blockCard}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={tl.blockTitle}>{item.label}</Text>
+                            <Text style={tl.blockSub}>Blocked · private to you</Text>
+                        </View>
+                        <Ionicons name="ban-outline" size={16} color={GRAY} />
+                    </View>
+                </TouchableOpacity>
+            );
+        }
+        if (item.kind === 'day_off') {
+            return (
+                <View key={`off-${item.block_id}`} style={tl.noteCard}>
+                    <Text style={tl.blockTitle}>{item.label}</Text>
+                    <Text style={tl.blockSub}>Blocked · private to you</Text>
+                </View>
+            );
+        }
+        return (
+            <View key={`closed-${item.override_id}`} style={tl.noteCard}>
+                <Text style={tl.blockTitle}>Closed</Text>
+                <Text style={tl.blockSub}>{item.note ? `All day · ${item.note}` : 'All day'}</Text>
+            </View>
+        );
+    };
 
     // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1730,13 +1712,14 @@ export default function BookingScreen() {
                     <View style={s.fabRow}>
                         {/* Block time button */}
                         <TouchableOpacity
-                            style={s.fabGray}
+                            style={s.blockPill}
                             onPress={() => setShowBlockModal(true)}
                             activeOpacity={0.85}
                             accessibilityRole="button"
-                            accessibilityLabel="Block a time slot"
+                            accessibilityLabel="Block time"
                         >
-                            <Ionicons name="lock-closed" size={16} color={GRAY} />
+                            <Ionicons name="ban-outline" size={15} color="#FFFFFF" />
+                            <Text style={s.blockPillText}>Block time</Text>
                         </TouchableOpacity>
                         {/* + FAB — opens action picker */}
                         <TouchableOpacity
@@ -1798,7 +1781,7 @@ export default function BookingScreen() {
                                     <Text style={[s.weekNumTxt, selected && s.weekNumTxtOn]}>{num}</Text>
                                 </View>
                                 <View style={s.weekDots}>
-                                    {summary?.openCount ? <View style={[s.weekDot, { backgroundColor: GREEN }]} /> : null}
+                                    {summary?.openCount ? <View style={[s.weekDot, { backgroundColor: TEAL }]} /> : null}
                                     {summary?.bookedCount ? <View style={[s.weekDot, { backgroundColor: NAVY }]} /> : null}
                                 </View>
                             </TouchableOpacity>
@@ -1820,17 +1803,17 @@ export default function BookingScreen() {
 
                 {/* Summary pills */}
                 <View style={s.pillRow}>
-                    <View style={[s.pill, s.pillGreen]}>
-                        <Text style={[s.pillNum, { color: GREEN }]}>{countOpen}</Text>
-                        <Text style={[s.pillLbl, { color: GREEN }]}>Open</Text>
+                    <View style={[s.pill, s.pillMint]}>
+                        <Text style={[s.pillNum, { color: TEAL }]}>{countOpen}</Text>
+                        <Text style={[s.pillLbl, { color: TEAL }]}>Open</Text>
                     </View>
                     <View style={[s.pill, countBooked > 0 ? s.pillBlue : s.pillMuted]}>
-                        <Text style={[s.pillNum, { color: countBooked > 0 ? BLUE : GRAY }]}>{countBooked}</Text>
-                        <Text style={[s.pillLbl, { color: countBooked > 0 ? BLUE : GRAY }]}>Booked</Text>
+                        <Text style={[s.pillNum, { color: countBooked > 0 ? NAVY : GRAY }]}>{countBooked}</Text>
+                        <Text style={[s.pillLbl, { color: countBooked > 0 ? NAVY : GRAY }]}>Booked</Text>
                     </View>
-                    <View style={[s.pill, countDone > 0 ? s.pillGreen : s.pillMuted]}>
-                        <Text style={[s.pillNum, { color: countDone > 0 ? GREEN : GRAY }]}>{countDone}</Text>
-                        <Text style={[s.pillLbl, { color: countDone > 0 ? GREEN : GRAY }]}>Done</Text>
+                    <View style={[s.pill, countDone > 0 ? s.pillBlue : s.pillMuted]}>
+                        <Text style={[s.pillNum, { color: countDone > 0 ? NAVY : GRAY }]}>{countDone}</Text>
+                        <Text style={[s.pillLbl, { color: countDone > 0 ? NAVY : GRAY }]}>Done</Text>
                     </View>
                     <View style={[s.pill, s.pillMuted]}>
                         <Text style={[s.pillNum, { color: GRAY }]}>{countMissed}</Text>
@@ -1839,103 +1822,9 @@ export default function BookingScreen() {
                 </View>
             </View>
 
-            {/* ── BODY: Two-section list ─────────────────────────────────── */}
-            <SectionList
+            <ScrollView
                 style={s.list}
-                contentContainerStyle={[s.listContent, { paddingBottom: insets.bottom + 120 }]}
-                sections={sections}
-                keyExtractor={(item, index) => {
-                    // Use the SectionItem union (OpenSlot | Booking | BlockedSlot)
-                    // and probe for properties safely via 'in' checks.
-                    const i = item as SectionItem;
-
-                    // Preferred order: use the most stable unique ID available,
-                    // then fall back to a composite of type + date + times + index.
-                    // The section key prefix (open|booked|blocked) prevents cross-
-                    // section collisions when two sections share similar time strings.
-                    const base =
-                        ('id'              in i ? (i as any).id              : undefined) ??
-                        ('_id'             in i ? (i as any)._id             : undefined) ??
-                        ('availability_id' in i ? (i as any).availability_id : undefined) ??
-                        ('booking_id'      in i ? (i as any).booking_id      : undefined) ??
-                        ('slot_id'         in i ? (i as any).slot_id         : undefined);
-
-                    if (base) {
-                        // Prefix with index so duplicate slot_ids (two DB windows
-                        // that both expand to the same start time) never collide.
-                        return `${base}-${index}`;
-                    }
-
-                    // Ultimate fallback: stable composite key
-                    const type   = ('kind'       in i ? i.kind       : undefined) ??
-                                   ('status'     in i ? (i as any).status : undefined) ?? 'item';
-                    const date   = ('date'       in i ? (i as any).date       : '');
-                    const start  = ('start_time' in i ? (i as any).start_time : '');
-                    const end    = ('end_time'   in i ? (i as any).end_time   : '');
-                    return `${type}-${date}-${start}-${end}-${index}`;
-                }}
-                stickySectionHeadersEnabled
-                renderSectionHeader={({ section }) => (
-                    <SectionHeader
-                        title={section.title}
-                        count={section.count}
-                        color={section.color}
-                        icon={section.icon}
-                    />
-                )}
-                renderItem={({ item, section }) => {
-                    if (section.key === 'open') {
-                        const slot = item as OpenSlot;
-                        return (
-                            <View style={s.itemWrap}>
-                                <OpenSlotCard
-                                    slot={slot}
-                                    onBook={() => openQuickBook(slot.start_time)}
-                                />
-                            </View>
-                        );
-                    }
-                    if (section.key === 'blocked') {
-                        const bl = item as BlockedSlot;
-                        return (
-                            <View style={s.itemWrap}>
-                                <BlockedSlotCard
-                                    slot={bl}
-                                    onUnblock={() => handleUnblock(bl.slot_id)}
-                                />
-                            </View>
-                        );
-                    }
-                    const booking = item as Booking;
-                    return (
-                        <View style={s.itemWrap}>
-                            <SessionCard
-                                booking={booking}
-                                onTap={setActiveSession}
-                            />
-                        </View>
-                    );
-                }}
-                renderSectionFooter={({ section }) => {
-                    if (section.data.length > 0) return null;
-                    if (section.key === 'open') {
-                        return (
-                            <EmptySection
-                                color={GREEN}
-                                message="No open slots — all your availability is booked today 🎉"
-                            />
-                        );
-                    }
-                    if (section.key === 'blocked') return null;  // no empty state for blocked
-                    return (
-                        <EmptySection
-                            color={BLUE}
-                            message="Nothing booked yet — tap an open slot above or tap + to schedule"
-                            actionLabel="+ Add / Book"
-                            onAction={() => setShowActionPicker(true)}
-                        />
-                    );
-                }}
+                contentContainerStyle={[s.listContent, { paddingBottom: insets.bottom + 120, paddingTop: 12 }]}
                 showsVerticalScrollIndicator={false}
                 refreshControl={
                     <RefreshControl
@@ -1944,7 +1833,35 @@ export default function BookingScreen() {
                         tintColor={NAVY}
                     />
                 }
-            />
+            >
+                <View style={tl.dayHead}>
+                    <Text style={[tl.dayTitle, fontStyle(fonts.bodySemibold, '600')]}>{dayTitle}</Text>
+                    <Text style={tl.dayCount}>{countOpen}</Text>
+                </View>
+                {items.map(renderScheduleItem)}
+                {showSetHours && (
+                    <View style={tl.emptyWrap}>
+                        <View style={tl.emptyCard}>
+                            <View style={tl.emptyIcon}>
+                                <Ionicons name="time-outline" size={22} color={TEAL} />
+                            </View>
+                            <Text style={[tl.emptyTitle, fontStyle(fonts.headingSemibold, '600')]}>Set your working hours</Text>
+                            <Text style={tl.emptyBody}>
+                                Without hours, the day fills with empty slots from early morning on. Set when you work, and only those times will show as open.
+                            </Text>
+                            <TouchableOpacity
+                                style={tl.emptyBtn}
+                                onPress={() => navigation.navigate('WorkingHours')}
+                                accessibilityRole="button"
+                                accessibilityLabel="Set your working hours"
+                            >
+                                <Text style={tl.emptyBtnTxt}>Set your working hours</Text>
+                            </TouchableOpacity>
+                        </View>
+                        <Text style={tl.emptyFoot}>You can also add a one-off Saturday later.</Text>
+                    </View>
+                )}
+            </ScrollView>
 
             {/* ── Session Action Modal ───────────────────────────────────── */}
             <SessionActionModal
@@ -1958,6 +1875,9 @@ export default function BookingScreen() {
             <ActionPickerModal
                 visible={showActionPicker}
                 onClose={() => setShowActionPicker(false)}
+                onWorkingHours={() => navigation.navigate('WorkingHours')}
+                onSlotLength={() => navigation.navigate('SlotLength')}
+                onOneOff={() => navigation.navigate('OneOffChanges')}
                 onAddSlot={() => setShowAddAvailability(true)}
                 onBookClient={() => openQuickBook()}
             />
@@ -1973,9 +1893,11 @@ export default function BookingScreen() {
             {/* ── QuickBook Modal (Book a client — client required) ──────── */}
             <QuickBookModal
                 visible={showQuickBook}
-                onClose={() => { setShowQuickBook(false); setSelectedSlotTime(undefined); }}
-                onBooked={() => { setShowQuickBook(false); setSelectedSlotTime(undefined); fetchData(true); }}
+                onClose={() => { setShowQuickBook(false); setSelectedSlotTime(undefined); setSelectedSlotEnd(undefined); setSelectedSlotId(undefined); }}
+                onBooked={() => { setShowQuickBook(false); setSelectedSlotTime(undefined); setSelectedSlotEnd(undefined); setSelectedSlotId(undefined); fetchData(true); }}
                 preselectedStartTime={selectedSlotTime}
+                preselectedEndTime={selectedSlotEnd}
+                preselectedSlotId={selectedSlotId}
                 preselectedDate={selectedDate}
             />
 
@@ -2072,6 +1994,16 @@ const s = StyleSheet.create({
         shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 4,
         shadowOffset: { width: 0, height: 2 }, elevation: 3,
     },
+    blockPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: 'rgba(255,255,255,0.14)',
+        borderRadius: 20,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+    },
+    blockPillText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
     fabGray: {
         width: 40, height: 40, borderRadius: 12,
         backgroundColor: '#F3F4F6',
@@ -2086,6 +2018,7 @@ const s = StyleSheet.create({
         borderRadius: 10,
     },
     pillGreen: { backgroundColor: '#F0FDF4' },
+    pillMint: { backgroundColor: '#E6F7F1' },
     pillBlue:  { backgroundColor: '#E7EEF2' },
     pillRed:   { backgroundColor: '#FEE2E2' },
     pillMuted: { backgroundColor: '#F3F4F6' },
@@ -2146,4 +2079,70 @@ const s = StyleSheet.create({
         fontWeight: '700',
         color:      NAVY,
     },
+});
+
+const tl = StyleSheet.create({
+    dayHead: {
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+        paddingHorizontal: 16, marginBottom: 8,
+    },
+    dayTitle: { color: '#6B7280', fontSize: 12, letterSpacing: 0.6 },
+    dayCount: { color: '#0F766E', fontSize: 13, fontWeight: '700' },
+    row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, marginBottom: 8 },
+    timeCol: { width: 52, alignItems: 'flex-end', paddingRight: 8 },
+    time: { fontSize: 13, fontWeight: '700', color: '#6B7280' },
+    timeStrong: { fontSize: 13, fontWeight: '800', color: '#183A4A' },
+    period: { fontSize: 10, color: '#9CA3AF', marginTop: 1 },
+    openCard: {
+        flex: 1, flexDirection: 'row', alignItems: 'center',
+        backgroundColor: '#E6F7F1', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 12,
+    },
+    openTitle: { color: '#0F766E', fontSize: 16 },
+    openSub: { color: '#4F7F71', fontSize: 12, marginTop: 2 },
+    bookBtn: {
+        flexDirection: 'row', alignItems: 'center', gap: 2,
+        backgroundColor: '#0F766E', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8,
+    },
+    bookTxt: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    bookedCard: {
+        flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
+        backgroundColor: '#FFFFFF', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 12,
+        borderWidth: 1, borderColor: '#E5E7EB',
+    },
+    avatar: {
+        width: 36, height: 36, borderRadius: 18, backgroundColor: '#E6F7F1',
+        alignItems: 'center', justifyContent: 'center',
+    },
+    avatarTxt: { color: '#0F766E', fontSize: 13, fontWeight: '800' },
+    client: { color: '#183A4A', fontSize: 16 },
+    sessionMeta: { color: '#6B7280', fontSize: 12, marginTop: 2 },
+    status: { color: '#4F7F71', fontSize: 13, fontWeight: '700' },
+    blockCard: {
+        flex: 1, flexDirection: 'row', alignItems: 'center',
+        borderRadius: 16, paddingHorizontal: 14, paddingVertical: 12,
+        borderWidth: 1, borderStyle: 'dashed', borderColor: '#D1D5DB', backgroundColor: '#FFFFFF',
+    },
+    blockTitle: { color: '#6B7280', fontSize: 15, fontWeight: '700' },
+    blockSub: { color: '#9CA3AF', fontSize: 12, marginTop: 2 },
+    noteCard: {
+        marginHorizontal: 16, marginBottom: 8, marginLeft: 64,
+        borderRadius: 16, padding: 14,
+        borderWidth: 1, borderStyle: 'dashed', borderColor: '#D1D5DB',
+    },
+    emptyWrap: { paddingHorizontal: 16, paddingTop: 8 },
+    emptyCard: {
+        backgroundColor: '#FFFFFF', borderRadius: 18, padding: 20, alignItems: 'center',
+    },
+    emptyIcon: {
+        width: 48, height: 48, borderRadius: 24, backgroundColor: '#E6F7F1',
+        alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+    },
+    emptyTitle: { color: '#183A4A', fontSize: 18, textAlign: 'center', marginBottom: 8 },
+    emptyBody: { color: '#6B7280', fontSize: 14, lineHeight: 20, textAlign: 'center' },
+    emptyBtn: {
+        marginTop: 16, backgroundColor: '#0F766E', borderRadius: 14,
+        paddingVertical: 14, paddingHorizontal: 18, alignSelf: 'stretch', alignItems: 'center',
+    },
+    emptyBtnTxt: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    emptyFoot: { color: '#9CA3AF', fontSize: 12, textAlign: 'center', marginTop: 14 },
 });

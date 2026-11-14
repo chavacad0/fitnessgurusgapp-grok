@@ -263,6 +263,69 @@ export interface CoachAvailabilitySlot {
      * Only present in coach API responses.
      */
     blocked_reason?: string;
+    source?: 'rules';
+}
+
+export interface AvailabilityRange {
+    start: string;
+    end: string;
+}
+
+export interface AvailabilityWeekday {
+    day: 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+    enabled: boolean;
+    ranges: AvailabilityRange[];
+}
+
+export interface AvailabilityRules {
+    timezone: 'Asia/Singapore';
+    hours_saved: boolean;
+    slot_length_minutes: 30 | 45 | 60 | 90;
+    buffer_minutes: 0 | 10 | 15;
+    weekdays: AvailabilityWeekday[];
+    blocks: Array<{
+        id: string;
+        date: string;
+        kind: 'range' | 'day_off';
+        start?: string;
+        end?: string;
+        label?: string;
+    }>;
+    overrides: Array<{
+        id: string;
+        date: string;
+        kind: 'extra' | 'closed';
+        ranges?: AvailabilityRange[];
+        note?: string;
+        slot_count?: number;
+    }>;
+}
+
+export type CoachScheduleItem =
+    | { kind: 'open'; slot_id: string; start_time: string; end_time: string; duration_minutes: number }
+    | {
+        kind: 'booked';
+        booking_id: string;
+        client_id: string;
+        client_name: string;
+        start_time: string;
+        end_time: string;
+        status: 'booked' | 'completed' | 'cancelled';
+        duration_minutes: number;
+    }
+    | { kind: 'blocked'; block_id: string; start_time: string; end_time: string; label: string; legacy: boolean }
+    | { kind: 'day_off'; block_id: string; label: string }
+    | { kind: 'closed'; override_id: string; note?: string };
+
+export interface CoachSchedule {
+    timezone: 'Asia/Singapore';
+    date: string;
+    hours_saved: boolean;
+    slot_length_minutes: number;
+    buffer_minutes: number;
+    counts: { open: number; booked: number; done: number; missed: number };
+    items: CoachScheduleItem[];
+    month: Record<string, { open: number; booked: number; done: number; missed: number }>;
 }
 
 /**

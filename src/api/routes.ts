@@ -7,6 +7,17 @@ import { detectRedFlagsForClient } from '../services/mongoRedFlagDetectorService
 import { getAllClients, validateClientOwnership } from '../repositories/mongoClientRepo';
 import { assignPlanToClient, getActivePlanForClient, computePlanStatus } from '../repositories/mongoClientPlanRepo';
 import { getAvailabilityByCoach, createAvailabilitySlot, blockSlot, unblockSlot, getAvailabilitySlotById } from '../repositories/mongoAvailabilityRepo';
+import {
+    addBlock as addAvailabilityBlock,
+    addOverride as addAvailabilityOverride,
+    clientVisibleSlots,
+    getCoachSchedule,
+    readRules,
+    removeBlock as removeAvailabilityBlock,
+    removeOverride as removeAvailabilityOverride,
+    saveSlotSettings,
+    saveWorkingHours,
+} from '../services/availabilityRulesService';
 import { getSessionStatus, completeSession, enrichWithSessionStatus } from '../services/sessionService';
 import { bookSession, completeBookingById, cancelBookingById, rescheduleBookingById, getDashboardSummary, quickBookSession } from '../services/bookingService';
 import { getBookingsByClient, cancelBookingByClient } from '../repositories/mongoBookingRepo';
@@ -354,7 +365,7 @@ router.get('/clients/me/availability', clientAuthMiddleware, async (req: Request
             return;
         }
 
-        const allSlots = await getAvailabilityByCoach(clientDoc.coach_id);
+        const allSlots = await clientVisibleSlots(clientDoc.coach_id);
 
         // Filter to open slots that haven't started yet (SGT)
         const nowSGT = new Date().toLocaleString('en-CA', { timeZone: 'Asia/Singapore', hour12: false });
@@ -1474,6 +1485,122 @@ router.get('/coach/revenue-summary', authMiddleware, async (req: AuthenticatedRe
     }
 });
 
+
+/**
+ * GET /api/coach/availability/rules
+ * Weekly hours, slot length, blocks, and one-off changes for the logged-in coach.
+ */
+router.get('/coach/availability/rules', async (req: AuthenticatedRequest, res: Response) => {
+    const coachId = req.coach!.sub;
+    try {
+        const rules = await readRules(coachId);
+        res.json({ success: true, ...rules });
+    } catch (error: any) {
+        handleServiceError(res, 'GET /coach/availability/rules', error);
+    }
+});
+
+/**
+ * PUT /api/coach/availability/rules/hours
+ * Body: { weekdays: [{ day, enabled, ranges: [{ start, end }] }] }
+ * Saves the seven weekdays and turns on "hours saved" for this coach only.
+ */
+router.put('/coach/availability/rules/hours', async (req: AuthenticatedRequest, res: Response) => {
+    const coachId = req.coach!.sub;
+    try {
+        const rules = await saveWorkingHours(coachId, req.body?.weekdays);
+        res.json({ success: true, ...rules });
+    } catch (error: any) {
+        handleServiceError(res, 'PUT /coach/availability/rules/hours', error);
+    }
+});
+
+/**
+ * PUT /api/coach/availability/rules/slot-settings
+ * Body: { slot_length_minutes: 30|45|60|90, buffer_minutes: 0|10|15 }
+ */
+router.put('/coach/availability/rules/slot-settings', async (req: AuthenticatedRequest, res: Response) => {
+    const coachId = req.coach!.sub;
+    try {
+        const rules = await saveSlotSettings(
+            coachId,
+            req.body?.slot_length_minutes,
+            req.body?.buffer_minutes,
+        );
+        res.json({ success: true, ...rules });
+    } catch (error: any) {
+        handleServiceError(res, 'PUT /coach/availability/rules/slot-settings', error);
+    }
+});
+
+/**
+ * POST /api/coach/availability/rules/blocks
+ * Body: { date, kind: 'range', start, end, label? } or { date, kind: 'day_off', label? }
+ * The label stays on the coach's schedule. Clients do not receive it.
+ */
+router.post('/coach/availability/rules/blocks', async (req: AuthenticatedRequest, res: Response) => {
+    const coachId = req.coach!.sub;
+    try {
+        const rules = await addAvailabilityBlock(coachId, req.body);
+        res.status(201).json({ success: true, ...rules });
+    } catch (error: any) {
+        handleServiceError(res, 'POST /coach/availability/rules/blocks', error);
+    }
+});
+
+router.delete('/coach/availability/rules/blocks/:blockId', async (req: AuthenticatedRequest, res: Response) => {
+    const coachId = req.coach!.sub;
+    const blockId = req.params['blockId'] as string;
+    try {
+        const rules = await removeAvailabilityBlock(coachId, blockId);
+        res.json({ success: true, ...rules });
+    } catch (error: any) {
+        handleServiceError(res, 'DELETE /coach/availability/rules/blocks', error);
+    }
+});
+
+/**
+ * POST /api/coach/availability/rules/overrides
+ * Body: { date, kind: 'extra', ranges: [{ start, end }] } or { date, kind: 'closed', note? }
+ * Does not change the weekly hours.
+ */
+router.post('/coach/availability/rules/overrides', async (req: AuthenticatedRequest, res: Response) => {
+    const coachId = req.coach!.sub;
+    try {
+        const rules = await addAvailabilityOverride(coachId, req.body);
+        res.status(201).json({ success: true, ...rules });
+    } catch (error: any) {
+        handleServiceError(res, 'POST /coach/availability/rules/overrides', error);
+    }
+});
+
+router.delete('/coach/availability/rules/overrides/:overrideId', async (req: AuthenticatedRequest, res: Response) => {
+    const coachId = req.coach!.sub;
+    const overrideId = req.params['overrideId'] as string;
+    try {
+        const rules = await removeAvailabilityOverride(coachId, overrideId);
+        res.json({ success: true, ...rules });
+    } catch (error: any) {
+        handleServiceError(res, 'DELETE /coach/availability/rules/overrides', error);
+    }
+});
+
+/**
+ * GET /api/coach/schedule?date=YYYY-MM-DD
+ * One day on the coach schedule: open slots from working hours, bookings,
+ * and private blocks. When hours have not been saved, open slots are only
+ * the ones already stored. The day is not filled with a generated grid.
+ */
+router.get('/coach/schedule', async (req: AuthenticatedRequest, res: Response) => {
+    const coachId = req.coach!.sub;
+    const date = typeof req.query['date'] === 'string' ? req.query['date'] : undefined;
+    try {
+        const schedule = await getCoachSchedule(coachId, date);
+        res.json({ success: true, ...schedule });
+    } catch (error: any) {
+        handleServiceError(res, 'GET /coach/schedule', error);
+    }
+});
 
 /**
  * GET /api/coach/availability?from=YYYY-MM-DD
