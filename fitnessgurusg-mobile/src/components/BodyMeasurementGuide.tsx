@@ -1,13 +1,12 @@
 /**
- * BodyMeasurementGuide — Interactive measurement guide + editable inputs.
+ * Body Measurements card on the client Profile.
  *
- * Features:
- *   • Smooth body silhouette (PNG asset; no extra native library)
- *   • Tappable measurement markers: Neck, Chest, Waist, Hips
- *   • Active state highlights the selected area with instructional text
- *   • Editable numeric inputs with explicit Save
- *   • Supports 'female' (4 areas) and 'male' (2 areas) modes
- *   • Uses Phase 1 design tokens
+ * Female figure: 1 Neck, 2 Waist, 3 Hips.
+ * Male figure: 1 Neck, 2 Waist.
+ * Chest is not on the figure. It stays under "+ Add more" so a saved chest
+ * number is not lost. Arms and thighs are not listed: the profile has no
+ * fields for them.
+ * Body-fat estimate is not shown. It needs measurement history (AUD-009).
  */
 
 import React, { useEffect, useState } from 'react';
@@ -20,23 +19,23 @@ import {
     ActivityIndicator,
     Alert,
     Image,
+    ImageSourcePropType,
     LayoutChangeEvent,
     Pressable,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, spacing, radius, typography, shadows } from '../theme/theme';
+import { fontStyle, useKitFonts } from '../theme/fonts';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+export type MeasurementFigure = 'female' | 'male';
 
 type MeasurementArea = 'neck' | 'chest' | 'waist' | 'hips';
 
 interface AreaConfig {
     key: MeasurementArea;
     label: string;
-    apiField: string;
+    apiField: keyof MeasurementValues;
     instruction: string;
-    /** Vertical position on the silhouette (percentage from top) */
-    position: number;
 }
 
 /** Values coming from the API — null means "not set". */
@@ -47,86 +46,119 @@ export interface MeasurementValues {
     hips_cm:  number | null;
 }
 
+export type MeasurementSave = Partial<{
+    neck_cm: number;
+    chest_cm: number;
+    waist_cm: number;
+    hips_cm: number;
+    height_cm: number;
+}>;
+
 export interface BodyMeasurementGuideProps {
-    /** Controls which areas are shown. Defaults to 'female'. */
-    measurementType?: 'female' | 'male';
+    /** Which figure is selected. Defaults to female when the profile has no sex. */
+    figure?: MeasurementFigure;
     /** Current persisted measurement values. */
     values: MeasurementValues;
-    /** Called when the user saves. Parent handles API call + reload. */
-    onSave: (data: Partial<Record<string, number>>) => Promise<void>;
-    /** Whether a save is in progress (parent manages). */
+    /** Height in cm from the existing profile field. Null means not set. */
+    heightCm?: number | null;
+    /** Called when the user saves measurements and/or height. */
+    onSave: (data: MeasurementSave) => Promise<void>;
+    /** Called when Female or Male is chosen. The parent stores it on the profile. */
+    onFigureChange?: (figure: MeasurementFigure) => Promise<void>;
+    /** Whether a measurement save is in progress (parent manages). */
     saving?: boolean;
 }
 
-// ─── Area Definitions ─────────────────────────────────────────────────────────
+const NECK: AreaConfig = {
+    key: 'neck',
+    label: 'Neck',
+    apiField: 'neck_cm',
+    instruction: 'Measure around the base of your neck, just above where it meets your shoulders.',
+};
 
-const FEMALE_AREAS: AreaConfig[] = [
-    {
-        key: 'neck',
-        label: 'Neck',
-        apiField: 'neck_cm',
-        instruction: 'Measure around the base of your neck, just above where it meets your shoulders.',
-        position: 12,
-    },
-    {
-        key: 'chest',
-        label: 'Chest',
-        apiField: 'chest_cm',
-        instruction: 'Measure around the fullest part of your chest, keeping the tape level across your back.',
-        position: 30,
-    },
-    {
-        key: 'waist',
-        label: 'Waist',
-        apiField: 'waist_cm',
-        instruction: 'Measure around the smallest part of your waist, usually just above your navel.',
-        position: 48,
-    },
-    {
-        key: 'hips',
-        label: 'Hips',
-        apiField: 'hips_cm',
-        instruction: 'Measure around the widest part of your hips and glutes.',
-        position: 64,
-    },
-];
+const WAIST_FEMALE: AreaConfig = {
+    key: 'waist',
+    label: 'Waist',
+    apiField: 'waist_cm',
+    instruction: 'Measure around the smallest part of your waist, usually just above your navel.',
+};
 
-const MALE_AREAS: AreaConfig[] = [
-    {
-        key: 'neck',
-        label: 'Neck',
-        apiField: 'neck_cm',
-        instruction: 'Measure around the base of your neck, just above where it meets your shoulders.',
-        position: 12,
-    },
-    {
-        key: 'waist',
-        label: 'Waist',
-        apiField: 'waist_cm',
-        instruction: 'Measure around your waist near the navel, keeping the tape level.',
-        position: 48,
-    },
-];
+const WAIST_MALE: AreaConfig = {
+    key: 'waist',
+    label: 'Waist',
+    apiField: 'waist_cm',
+    instruction: 'Measure around your waist near the navel, keeping the tape level.',
+};
+
+const HIPS: AreaConfig = {
+    key: 'hips',
+    label: 'Hips',
+    apiField: 'hips_cm',
+    instruction: 'Measure around the widest part of your hips and glutes.',
+};
+
+const CHEST: AreaConfig = {
+    key: 'chest',
+    label: 'Chest',
+    apiField: 'chest_cm',
+    instruction: 'Measure around the fullest part of your chest, keeping the tape level across your back.',
+};
+
+/** Numbered points drawn on each figure. Chest is not one of them. */
+const NUMBERED: Record<MeasurementFigure, AreaConfig[]> = {
+    female: [NECK, WAIST_FEMALE, HIPS],
+    male: [NECK, WAIST_MALE],
+};
 
 /**
- * measurement-figure.png is 465×786 (@3x of the approved crop).
- * Circles are baked into the image. cx/cy/r are pixels in that crop,
- * so the transparent hit areas stay on the numbers at any width.
+ * Extra tape measures the profile can already store.
+ * Arms and thighs are omitted because those fields do not exist.
+ */
+const EXTRA_AREAS: AreaConfig[] = [CHEST];
+
+/**
+ * Both PNGs are 465×786 at @3x. Circles are baked into the image.
+ * cx/cy/r are pixels in that crop, so the hit areas stay on the numbers.
  */
 const FIGURE_W = 465;
 const FIGURE_H = 786;
-const MARKERS: Record<MeasurementArea, { cx: number; cy: number; r: number }> = {
-    neck:  { cx: 389,   cy: 139,   r: 24.5 },
-    chest: { cx: 389.5, cy: 224.5, r: 25 },
-    waist: { cx: 389.5, cy: 314.5, r: 25 },
-    hips:  { cx: 393,   cy: 400.5, r: 25.5 },
+
+const MARKERS: Record<MeasurementFigure, Partial<Record<MeasurementArea, { cx: number; cy: number; r: number }>>> = {
+    female: {
+        neck:  { cx: 389, cy: 139, r: 26 },
+        waist: { cx: 389, cy: 314, r: 26 },
+        hips:  { cx: 393, cy: 401, r: 26 },
+    },
+    male: {
+        neck:  { cx: 389, cy: 139, r: 26 },
+        waist: { cx: 389, cy: 314, r: 26 },
+    },
 };
 
-function MeasurementFigure({
+const FIGURE_IMAGE: Record<MeasurementFigure, ImageSourcePropType> = {
+    female: require('../../assets/measurement-figure-female.png'),
+    male: require('../../assets/measurement-figure-male.png'),
+};
+
+const SAGE = '#4F7F71';
+
+function draftsFrom(values: MeasurementValues, heightCm: number | null | undefined): Record<string, string> {
+    return {
+        neck_cm:   values.neck_cm  != null ? String(values.neck_cm)  : '',
+        chest_cm:  values.chest_cm != null ? String(values.chest_cm) : '',
+        waist_cm:  values.waist_cm != null ? String(values.waist_cm) : '',
+        hips_cm:   values.hips_cm  != null ? String(values.hips_cm)  : '',
+        height_cm: heightCm != null ? String(heightCm) : '',
+    };
+}
+
+function MeasurementFigureImage({
+    figure,
     areas,
     focusedArea,
     onSelect,
 }: {
+    figure: MeasurementFigure;
     areas: AreaConfig[];
     focusedArea: MeasurementArea | null;
     onSelect: (key: MeasurementArea) => void;
@@ -141,13 +173,14 @@ function MeasurementFigure({
     return (
         <View style={fig.wrap} onLayout={onLayout}>
             <Image
-                source={require('../../assets/measurement-figure.png')}
+                source={FIGURE_IMAGE[figure]}
                 style={fig.image}
                 resizeMode="stretch"
                 accessible={false}
             />
             {box.w > 0 && areas.map((area, index) => {
-                const marker = MARKERS[area.key];
+                const marker = MARKERS[figure][area.key];
+                if (!marker) return null;
                 const active = focusedArea === area.key;
                 const size = (marker.r * 2 * box.w) / FIGURE_W;
                 const left = ((marker.cx - marker.r) * box.w) / FIGURE_W;
@@ -182,7 +215,7 @@ function MeasurementFigure({
                             }}
                             onPress={() => onSelect(area.key)}
                             accessibilityRole="button"
-                            accessibilityLabel={`${area.label}, marker ${index + 1}`}
+                            accessibilityLabel={`${index + 1} ${area.label}`}
                             accessibilityState={{ selected: active }}
                         />
                     </React.Fragment>
@@ -194,77 +227,86 @@ function MeasurementFigure({
 
 const fig = StyleSheet.create({
     wrap: {
-        width: '40%',
+        width: '38%',
         aspectRatio: FIGURE_W / FIGURE_H,
     },
     image: { width: '100%', height: '100%' },
     ring: {
         position: 'absolute',
         borderWidth: 2,
-        borderColor: colors.primary,
+        borderColor: colors.accent,
     },
 });
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
 export default function BodyMeasurementGuide({
-    measurementType = 'female',
+    figure = 'female',
     values,
+    heightCm = null,
     onSave,
+    onFigureChange,
     saving = false,
 }: BodyMeasurementGuideProps) {
-    const areas = measurementType === 'male' ? MALE_AREAS : FEMALE_AREAS;
+    const fonts = useKitFonts();
+    const areas = NUMBERED[figure];
 
-    // ── Local editing state ───────────────────────────────────────────────────
-    const [editing, setEditing]       = useState(false);
+    const [editing, setEditing] = useState(false);
     const [focusedArea, setFocusedArea] = useState<MeasurementArea | null>(null);
+    const [focusHeight, setFocusHeight] = useState(false);
+    const [extrasOpen, setExtrasOpen] = useState(values.chest_cm != null);
+    const [figureSaving, setFigureSaving] = useState(false);
+    const [drafts, setDrafts] = useState<Record<string, string>>(() => draftsFrom(values, heightCm));
 
-    // Draft values (string buffers for TextInputs)
-    const [drafts, setDrafts] = useState<Record<string, string>>({});
-
-    // Sync drafts when values change (e.g. after reload)
     useEffect(() => {
-        const d: Record<string, string> = {};
-        for (const area of areas) {
-            const val = values[area.apiField as keyof MeasurementValues];
-            d[area.apiField] = val != null ? String(val) : '';
-        }
-        setDrafts(d);
-    }, [values]); // eslint-disable-line react-hooks/exhaustive-deps
+        if (editing) return;
+        setDrafts(draftsFrom(values, heightCm));
+    }, [editing, values.neck_cm, values.chest_cm, values.waist_cm, values.hips_cm, heightCm]);
 
-    const startEdit = () => setEditing(true);
-    const cancelEdit = () => {
-        // Reset drafts to persisted values
-        const d: Record<string, string> = {};
-        for (const area of areas) {
-            const val = values[area.apiField as keyof MeasurementValues];
-            d[area.apiField] = val != null ? String(val) : '';
+    useEffect(() => {
+        if (values.chest_cm != null) setExtrasOpen(true);
+    }, [values.chest_cm]);
+
+    useEffect(() => {
+        if (focusedArea && focusedArea !== 'chest' && !areas.some(area => area.key === focusedArea)) {
+            setFocusedArea(null);
         }
-        setDrafts(d);
+    }, [figure, focusedArea, areas]);
+
+    const startEdit = (fromHeight = false) => {
+        setFocusHeight(fromHeight);
+        setEditing(true);
+    };
+
+    const cancelEdit = () => {
+        setDrafts(draftsFrom(values, heightCm));
         setEditing(false);
         setFocusedArea(null);
+        setFocusHeight(false);
     };
 
     const handleSave = async () => {
-        // Validate all filled fields
-        const payload: Record<string, number> = {};
-        for (const area of areas) {
-            const raw = drafts[area.apiField]?.trim();
-            if (raw && raw.length > 0) {
-                const num = parseFloat(raw);
-                if (isNaN(num) || num <= 0 || num > 300) {
-                    Alert.alert(
-                        `Invalid ${area.label}`,
-                        `Enter a valid measurement in cm (e.g. 73.5). Must be between 0.1 and 300.`,
-                    );
-                    return;
-                }
-                payload[area.apiField] = num;
+        const payload: MeasurementSave = {};
+        const fields: { field: keyof MeasurementSave; label: string }[] = [
+            ...areas.map(area => ({ field: area.apiField, label: area.label })),
+            { field: CHEST.apiField, label: CHEST.label },
+            { field: 'height_cm', label: 'Height' },
+        ];
+
+        for (const { field, label } of fields) {
+            const raw = drafts[field]?.trim();
+            if (!raw) continue;
+            const num = parseFloat(raw);
+            if (isNaN(num) || num <= 0 || num > 300) {
+                Alert.alert(
+                    `Invalid ${label}`,
+                    'Enter a valid measurement in cm (e.g. 73.5). Must be between 0.1 and 300.',
+                );
+                return;
             }
+            payload[field] = num;
         }
 
         if (Object.keys(payload).length === 0) {
-            Alert.alert('No measurements', 'Enter at least one measurement value to save.');
+            Alert.alert('Nothing to save', 'Enter a measurement or a height in cm.');
             return;
         }
 
@@ -272,6 +314,7 @@ export default function BodyMeasurementGuide({
             await onSave(payload);
             setEditing(false);
             setFocusedArea(null);
+            setFocusHeight(false);
         } catch {
             // Error handled by parent
         }
@@ -281,109 +324,253 @@ export default function BodyMeasurementGuide({
         setDrafts(prev => ({ ...prev, [field]: val }));
     };
 
-    const activeConfig = areas.find(a => a.key === focusedArea) ?? null;
+    const selectFigure = async (next: MeasurementFigure) => {
+        if (next === figure || figureSaving || saving || !onFigureChange) return;
+        setFigureSaving(true);
+        try {
+            await onFigureChange(next);
+        } catch {
+            // Parent shows the error. The switch stays on the saved figure.
+        } finally {
+            setFigureSaving(false);
+        }
+    };
 
-    // ── Is there any saved data? ──────────────────────────────────────────────
+    const toggleFocus = (key: MeasurementArea) => {
+        setFocusedArea(focusedArea === key ? null : key);
+    };
+
+    const activeConfig = focusedArea === 'chest'
+        ? CHEST
+        : areas.find(area => area.key === focusedArea) ?? null;
+
     const hasSavedData = areas.some(
-        a => values[a.apiField as keyof MeasurementValues] != null,
-    );
+        area => values[area.apiField] != null,
+    ) || values.chest_cm != null;
+
+    const chestVisible = extrasOpen || values.chest_cm != null || (drafts.chest_cm ?? '').trim().length > 0;
+    const extraNames = EXTRA_AREAS.map(area => area.label.toLowerCase()).join(', ');
+
+    const renderTile = (area: AreaConfig, index: number, shareRow: boolean) => {
+        const isActive = focusedArea === area.key;
+        const savedVal = values[area.apiField];
+        return (
+            <TouchableOpacity
+                key={area.key}
+                style={[s.mTile, shareRow && s.mTileFlex, isActive && s.mTileActive]}
+                onPress={() => toggleFocus(area.key)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`${index + 1} ${area.label}`}
+                accessibilityState={{ selected: isActive }}
+            >
+                <View style={s.mLabelRow}>
+                    <View style={s.mNum}>
+                        <Text style={s.mNumText}>{index + 1}</Text>
+                    </View>
+                    <Text style={[s.mLabel, fontStyle(fonts.bodySemibold, '700')]}>{area.label}</Text>
+                </View>
+                {renderValue(area, savedVal)}
+            </TouchableOpacity>
+        );
+    };
+
+    const renderValue = (area: AreaConfig, savedVal: number | null) => {
+        const draftVal = drafts[area.apiField] ?? '';
+        if (editing) {
+            return (
+                <TextInput
+                    style={s.mInput}
+                    value={draftVal}
+                    onChangeText={v => updateDraft(area.apiField, v)}
+                    onFocus={() => setFocusedArea(area.key)}
+                    placeholder="cm"
+                    placeholderTextColor={colors.textTertiary}
+                    keyboardType="decimal-pad"
+                    maxLength={6}
+                    accessibilityLabel={`${area.label} in cm`}
+                />
+            );
+        }
+        if (savedVal != null) {
+            return <Text style={s.mValue}>{savedVal} <Text style={s.mUnit}>cm</Text></Text>;
+        }
+        return <Text style={s.mUnset}>Not set</Text>;
+    };
 
     return (
         <View style={s.card}>
-            {/* Header */}
             <View style={s.headerRow}>
                 <View style={s.headerLeft}>
-                    <Ionicons name="body-outline" size={18} color={colors.accent} />
-                    <Text style={s.title}>Body Measurements</Text>
+                    <Ionicons name="person-outline" size={18} color={colors.accent} />
+                    <Text style={[s.title, fontStyle(fonts.headingSemibold, '700')]}>Body Measurements</Text>
                 </View>
                 {!editing && (
                     <TouchableOpacity
-                        onPress={startEdit}
+                        onPress={() => startEdit(false)}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         accessibilityRole="button"
-                        accessibilityLabel="Edit measurements"
+                        accessibilityLabel={hasSavedData ? 'Edit measurements' : 'Add measurements'}
                     >
-                        <Text style={s.editLink}>
+                        <Text style={[s.editLink, fontStyle(fonts.bodySemibold, '600')]}>
                             {hasSavedData ? 'Edit' : 'Add'}
                         </Text>
                     </TouchableOpacity>
                 )}
             </View>
-            <Text style={s.subtitle}>
+            <Text style={[s.subtitle, fontStyle(fonts.body, '400')]}>
                 {editing
                     ? 'Tap a number, then enter the measurement in cm.'
                     : 'Tap a number to see where to measure.'}
             </Text>
 
-            <View style={s.mgrid}>
-                <MeasurementFigure
-                    areas={areas}
-                    focusedArea={focusedArea}
-                    onSelect={key => setFocusedArea(focusedArea === key ? null : key)}
-                />
-                <View style={s.mTiles}>
-                    {areas.map((area, index) => {
-                        const isActive = focusedArea === area.key;
-                        const savedVal = values[area.apiField as keyof MeasurementValues];
-                        const draftVal = drafts[area.apiField] ?? '';
+            <View style={s.figureRow}>
+                <Text style={[s.figureLabel, fontStyle(fonts.body, '400')]}>Figure</Text>
+                <View style={s.segment} accessibilityRole="tablist">
+                    {(['female', 'male'] as const).map(option => {
+                        const on = figure === option;
+                        const label = option === 'female' ? 'Female' : 'Male';
                         return (
-                            <TouchableOpacity
-                                key={area.key}
-                                style={[s.mTile, isActive && s.mTileActive]}
-                                onPress={() => setFocusedArea(focusedArea === area.key ? null : area.key)}
-                                activeOpacity={0.8}
-                                accessibilityRole="button"
-                                accessibilityLabel={`${area.label} measurement`}
-                                accessibilityState={{ selected: isActive }}
+                            <Pressable
+                                key={option}
+                                style={[s.segmentBtn, on && s.segmentOn]}
+                                onPress={() => { void selectFigure(option); }}
+                                disabled={figureSaving || saving}
+                                accessibilityRole="tab"
+                                accessibilityLabel={`${label} figure`}
+                                accessibilityState={{ selected: on, disabled: figureSaving || saving }}
                             >
-                                <View style={s.mLabelRow}>
-                                    <View style={s.mNum}>
-                                        <Text style={s.mNumText}>{index + 1}</Text>
-                                    </View>
-                                    <Text style={s.mLabel}>{area.label}</Text>
-                                </View>
-                                {editing ? (
-                                    <TextInput
-                                        style={s.mInput}
-                                        value={draftVal}
-                                        onChangeText={(v) => updateDraft(area.apiField, v)}
-                                        onFocus={() => setFocusedArea(area.key)}
-                                        placeholder="cm"
-                                        placeholderTextColor={colors.textTertiary}
-                                        keyboardType="numeric"
-                                        maxLength={6}
-                                        accessibilityLabel={`${area.label} in cm`}
-                                    />
-                                ) : savedVal != null ? (
-                                    <Text style={s.mValue}>{savedVal} <Text style={s.mUnit}>cm</Text></Text>
-                                ) : (
-                                    <Text style={s.mUnset}>Not set</Text>
-                                )}
-                            </TouchableOpacity>
+                                <Text style={[
+                                    s.segmentText,
+                                    on ? s.segmentTextOn : s.segmentTextOff,
+                                    fontStyle(on ? fonts.bodySemibold : fonts.body, on ? '600' : '400'),
+                                ]}>
+                                    {label}
+                                </Text>
+                            </Pressable>
                         );
                     })}
                 </View>
             </View>
 
-            {/* Instruction callout */}
+            <View style={s.mgrid}>
+                <MeasurementFigureImage
+                    figure={figure}
+                    areas={areas}
+                    focusedArea={focusedArea}
+                    onSelect={toggleFocus}
+                />
+                <View style={s.mTiles}>
+                    {figure === 'female' ? (
+                        <>
+                            <View style={s.tilePair}>
+                                {areas.slice(0, 2).map((area, index) => renderTile(area, index, true))}
+                            </View>
+                            {areas.slice(2).map((area, index) => renderTile(area, index + 2, false))}
+                        </>
+                    ) : (
+                        areas.map((area, index) => renderTile(area, index, false))
+                    )}
+                </View>
+            </View>
+
+            <TouchableOpacity
+                style={s.addMoreRow}
+                onPress={() => {
+                    const chestHasValue = values.chest_cm != null || (drafts.chest_cm ?? '').trim().length > 0;
+                    if (chestHasValue) {
+                        setExtrasOpen(true);
+                        return;
+                    }
+                    setExtrasOpen(open => !open);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Add more, ${extraNames}`}
+                accessibilityState={{ expanded: chestVisible }}
+            >
+                <Text style={[s.addMore, fontStyle(fonts.bodySemibold, '600')]}>
+                    + Add more ({extraNames})
+                </Text>
+                <Text style={[s.optional, fontStyle(fonts.body, '400')]}> Optional</Text>
+            </TouchableOpacity>
+
+            {chestVisible && (
+                <TouchableOpacity
+                    style={[s.mTile, s.extraTile, focusedArea === 'chest' && s.mTileActive]}
+                    onPress={() => toggleFocus('chest')}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Chest measurement"
+                    accessibilityState={{ selected: focusedArea === 'chest' }}
+                >
+                    <View style={s.mLabelRow}>
+                        <Text style={[s.mLabel, fontStyle(fonts.bodySemibold, '700')]}>{CHEST.label}</Text>
+                    </View>
+                    {renderValue(CHEST, values.chest_cm)}
+                </TouchableOpacity>
+            )}
+
+            <View style={s.heightRow}>
+                <View style={s.heightIcon}>
+                    <MaterialCommunityIcons name="ruler" size={16} color={colors.accent} />
+                </View>
+                <Text style={[s.heightLabel, fontStyle(fonts.bodySemibold, '700')]}>Height</Text>
+                {editing ? (
+                    <TextInput
+                        style={s.heightInput}
+                        value={drafts.height_cm ?? ''}
+                        onChangeText={v => updateDraft('height_cm', v)}
+                        placeholder="cm"
+                        placeholderTextColor={colors.textTertiary}
+                        keyboardType="decimal-pad"
+                        maxLength={6}
+                        autoFocus={focusHeight}
+                        accessibilityLabel="Height in cm"
+                    />
+                ) : heightCm != null ? (
+                    <TouchableOpacity
+                        onPress={() => startEdit(true)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Height ${heightCm} centimetres`}
+                    >
+                        <Text style={[s.heightValue, fontStyle(fonts.headingSemibold, '700')]}>
+                            {heightCm} <Text style={s.heightUnit}>cm</Text>
+                        </Text>
+                    </TouchableOpacity>
+                ) : (
+                    <TouchableOpacity
+                        onPress={() => startEdit(true)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Add height"
+                    >
+                        <Text style={[s.editLink, fontStyle(fonts.bodySemibold, '600')]}>+ Add</Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+
             {activeConfig ? (
                 <View style={s.instruction}>
                     <View style={s.instructionIcon}>
                         <Ionicons name="information-circle" size={18} color={colors.accent} />
                     </View>
                     <View style={s.instructionContent}>
-                        <Text style={s.instructionTitle}>{activeConfig.label}</Text>
-                        <Text style={s.instructionText}>{activeConfig.instruction}</Text>
+                        <Text style={[s.instructionTitle, fontStyle(fonts.bodySemibold, '700')]}>{activeConfig.label}</Text>
+                        <Text style={[s.instructionText, fontStyle(fonts.body, '400')]}>{activeConfig.instruction}</Text>
                     </View>
                 </View>
             ) : (
-                <View style={s.hintRow}>
-                    <Ionicons name="hand-left-outline" size={14} color={colors.textTertiary} />
-                    <Text style={s.hintText}>Tap an area to see instructions</Text>
-                </View>
+                <Text style={[s.hintText, fontStyle(fonts.body, '400')]}>Tap an area to see instructions</Text>
             )}
 
-            {/* Edit actions */}
+            <Text style={[s.tip, fontStyle(fonts.body, '400')]}>
+                <Text style={s.tipLabel}>Tip: </Text>
+                Measure in the morning, tape snug not tight.
+            </Text>
+            <Text style={[s.defaults, fontStyle(fonts.body, '400')]}>
+                Defaults from the sex on your profile. You can change the figure any time.
+            </Text>
+
             {editing && (
                 <View style={s.actionRow}>
                     <TouchableOpacity
@@ -396,14 +583,14 @@ export default function BodyMeasurementGuide({
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={[s.saveBtn, saving && s.saveBtnDisabled]}
-                        onPress={handleSave}
+                        onPress={() => { void handleSave(); }}
                         disabled={saving}
                         accessibilityRole="button"
                     >
                         {saving ? (
                             <ActivityIndicator size="small" color="#fff" />
                         ) : (
-                            <Text style={s.saveBtnText}>Save Measurements</Text>
+                            <Text style={s.saveBtnText}>Save</Text>
                         )}
                     </TouchableOpacity>
                 </View>
@@ -412,312 +599,234 @@ export default function BodyMeasurementGuide({
     );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
-const SILHOUETTE_BG   = '#E8ECF0';
-const SILHOUETTE_BODY = '#D1D8E0';
-const MARKER_DEFAULT  = '#C5CDD5';
-const MARKER_ACTIVE   = colors.accent;
-
 const s = StyleSheet.create({
-    mgrid: { flexDirection: 'row', gap: spacing.base, alignItems: 'center' },
-    mTiles: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-    mTile: {
-        width: '47%',
-        borderWidth: 1,
-        borderColor: '#C9E8DF',
-        borderRadius: radius.md,
-        backgroundColor: '#F0FAF6',
-        padding: spacing.sm,
-        minHeight: 72,
-        justifyContent: 'center',
-    },
-    mTileActive: { borderColor: colors.accent, backgroundColor: colors.accentSubtle },
-    mLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-    mNum: {
-        width: 16, height: 16, borderRadius: 8,
-        backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
-    },
-    mNumText: { color: colors.textOnPrimary, fontSize: 9, fontWeight: '700' },
-    mLabel: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
-    mValue: { ...typography.label, color: colors.accent },
-    mUnit: { fontSize: 11, fontWeight: '500', color: colors.textSecondary },
-    mUnset: { ...typography.caption, color: colors.textTertiary },
-    mInput: {
-        borderBottomWidth: 1, borderBottomColor: colors.accent,
-        paddingVertical: 2, fontSize: 14, color: colors.textPrimary,
-    },
-
     card: {
         backgroundColor: colors.surface,
-        borderRadius:     radius.card,
-        borderWidth:      1,
-        borderColor:      colors.border,
-        padding:          spacing.base,
-        ...shadows.card,
+        borderRadius: radius.card,
+        padding: spacing.base,
+        marginBottom: spacing.md,
+        ...shadows.soft,
     },
-
-    // Header
     headerRow: {
-        flexDirection:  'row',
-        alignItems:     'center',
+        flexDirection: 'row',
+        alignItems: 'center',
         justifyContent: 'space-between',
-        marginBottom:   4,
+        marginBottom: 2,
     },
     headerLeft: {
         flexDirection: 'row',
-        alignItems:    'center',
-        gap:           6,
+        alignItems: 'center',
+        gap: 6,
+        flex: 1,
     },
     title: {
-        ...typography.label,
-        color:      colors.textPrimary,
-        fontWeight: '700',
+        fontSize: 17,
+        color: colors.primary,
     },
     editLink: {
-        fontSize:   13,
-        fontWeight: '600',
-        color:      colors.accent,
+        fontSize: 15,
+        color: colors.accent,
     },
     subtitle: {
         ...typography.caption,
-        color:        colors.textSecondary,
-        marginBottom: spacing.base,
+        fontSize: 13,
+        color: colors.textSecondary,
+        marginBottom: spacing.md,
     },
-
-    // Layout
-    guideContainer: {
+    figureRow: {
         flexDirection: 'row',
-        gap:           spacing.md,
-        marginBottom:  spacing.base,
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: spacing.md,
     },
-
-    // Silhouette
-    silhouette: {
-        width:           100,
-        alignItems:      'center',
-        backgroundColor: SILHOUETTE_BG,
-        borderRadius:    radius.md,
-        paddingVertical: spacing.md,
-        minHeight:       220,
+    figureLabel: {
+        fontSize: 14,
+        color: colors.textSecondary,
     },
-    head: {
-        width:           24,
-        height:          24,
-        borderRadius:    12,
-        backgroundColor: SILHOUETTE_BODY,
-        marginBottom:    4,
+    segment: {
+        flexDirection: 'row',
+        backgroundColor: colors.surfaceMuted,
+        borderRadius: radius.pill,
+        padding: 3,
     },
-    trunk: {
-        flex:                       1,
-        width:                      70,
-        backgroundColor:            SILHOUETTE_BODY,
-        borderTopLeftRadius:        18,
-        borderTopRightRadius:       18,
-        borderBottomLeftRadius:     6,
-        borderBottomRightRadius:    6,
-        position:                   'relative',
+    segmentBtn: {
+        minWidth: 76,
+        paddingHorizontal: 14,
+        paddingVertical: 7,
+        borderRadius: radius.pill,
+        alignItems: 'center',
     },
-    legs: {
-        flexDirection:  'row',
-        justifyContent: 'center',
-        marginTop:      2,
-    },
-    leg: {
-        width:                      26,
-        height:                     42,
-        backgroundColor:            SILHOUETTE_BODY,
-        borderBottomLeftRadius:     8,
-        borderBottomRightRadius:    8,
-    },
-    legGap: { width: 5 },
-
-    // Markers on silhouette
-    markerRow: {
-        position:       'absolute',
-        left:           0,
-        right:          0,
-        flexDirection:  'row',
-        alignItems:     'center',
-        justifyContent: 'center',
-        height:         22,
-        marginTop:      -11,
-    },
-    markerLine: {
-        position:        'absolute',
-        left:            4,
-        right:           4,
-        height:          2,
-        backgroundColor: MARKER_DEFAULT,
-        borderRadius:    1,
-    },
-    markerLineActive: {
-        backgroundColor: MARKER_ACTIVE,
-        height:          2.5,
-    },
-    markerPill: {
-        backgroundColor:   'rgba(255,255,255,0.85)',
-        paddingHorizontal: 5,
-        paddingVertical:   1,
-        borderRadius:      radius.xs,
-        borderWidth:       1,
-        borderColor:       MARKER_DEFAULT,
-    },
-    markerPillActive: {
-        backgroundColor: colors.accentSubtle,
-        borderColor:     MARKER_ACTIVE,
-    },
-    markerLabel: {
-        fontSize:       8,
-        fontWeight:     '700',
-        color:          colors.textSecondary,
-        letterSpacing:  0.3,
-        textTransform:  'uppercase',
-    },
-    markerLabelActive: { color: MARKER_ACTIVE },
-
-    // Values column
-    valuesColumn: {
-        flex:           1,
-        justifyContent: 'center',
-        gap:            spacing.sm,
-    },
-    valueRow: {
-        flexDirection:     'row',
-        alignItems:        'center',
-        gap:               spacing.sm,
-        paddingVertical:   8,
-        paddingHorizontal: spacing.md,
-        backgroundColor:   colors.background,
-        borderRadius:      radius.md,
-        borderWidth:       1,
-        borderColor:       colors.border,
-    },
-    valueRowActive: {
-        backgroundColor: colors.accentSubtle,
-        borderColor:     colors.accent,
-    },
-    valueDot: {
-        width:           7,
-        height:          7,
-        borderRadius:    3.5,
-        backgroundColor: MARKER_DEFAULT,
-    },
-    valueDotActive: { backgroundColor: MARKER_ACTIVE },
-    valueLabel: {
-        fontSize:   12,
-        fontWeight: '600',
-        color:      colors.textPrimary,
-        width:      42,
-    },
-    valueLabelActive: { color: colors.accent },
-    valueDisplay: {
-        flex:       1,
-        textAlign:  'right',
-        fontSize:   13,
-        color:      colors.textSecondary,
-    },
-    valueUnset: { color: colors.textTertiary, fontWeight: '400' },
-    valueDisplayActive: { color: colors.accent, fontWeight: '600' },
-
-    // Input group
-    inputGroup: {
-        flex:           1,
-        flexDirection:  'row',
-        alignItems:     'center',
-        justifyContent: 'flex-end',
-        gap:            4,
-    },
-    valueInput: {
-        width:           56,
-        height:          30,
-        borderWidth:     1,
-        borderColor:     colors.border,
-        borderRadius:    radius.xs,
+    segmentOn: {
         backgroundColor: colors.surface,
-        textAlign:       'center',
-        fontSize:        13,
-        fontWeight:      '600',
-        color:           colors.textPrimary,
-        paddingVertical: 0,
+        ...shadows.cardElevated,
     },
-    valueInputActive: {
-        borderColor: colors.accent,
+    segmentText: { fontSize: 14 },
+    segmentTextOn: { color: colors.primary },
+    segmentTextOff: { color: colors.textSecondary },
+
+    mgrid: {
+        flexDirection: 'row',
+        gap: spacing.sm,
+        alignItems: 'center',
+        marginBottom: spacing.sm,
     },
-    unitText: {
-        fontSize: 12,
-        color:    colors.textTertiary,
+    mTiles: {
+        flex: 1,
+        gap: spacing.sm,
+        justifyContent: 'center',
+    },
+    tilePair: {
+        flexDirection: 'row',
+        gap: spacing.sm,
+    },
+    mTile: {
+        borderWidth: 1,
+        borderColor: '#C9E8DF',
+        borderRadius: radius.md,
+        backgroundColor: colors.accentSubtle,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: spacing.sm,
+        minHeight: 68,
+        justifyContent: 'center',
+    },
+    mTileFlex: { flex: 1 },
+    mTileActive: { borderColor: colors.accent },
+    extraTile: { marginBottom: spacing.sm },
+    mLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+    mNum: {
+        width: 18,
+        height: 18,
+        borderRadius: 9,
+        backgroundColor: colors.accent,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    mNumText: { color: colors.textOnPrimary, fontSize: 10, fontWeight: '700' },
+    mLabel: { fontSize: 14, color: colors.primary },
+    mValue: { fontSize: 14, fontWeight: '600', color: colors.accent, marginTop: 2 },
+    mUnit: { fontSize: 12, fontWeight: '500', color: colors.textSecondary },
+    mUnset: { ...typography.caption, color: colors.textTertiary, marginTop: 2 },
+    mInput: {
+        borderBottomWidth: 1,
+        borderBottomColor: colors.accent,
+        paddingVertical: 2,
+        marginTop: 2,
+        fontSize: 14,
+        color: colors.textPrimary,
     },
 
-    // Instruction callout
-    instruction: {
-        flexDirection:   'row',
-        gap:             spacing.sm,
-        padding:         spacing.md,
+    addMoreRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        paddingVertical: spacing.sm,
+    },
+    addMore: { fontSize: 14, color: colors.accent },
+    optional: { fontSize: 13, color: SAGE },
+
+    heightRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surfaceMuted,
+        borderRadius: radius.pill,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 10,
+        marginTop: spacing.xs,
+        marginBottom: spacing.md,
+        gap: spacing.sm,
+    },
+    heightIcon: {
+        width: 28,
+        height: 28,
+        borderRadius: 8,
         backgroundColor: colors.accentSubtle,
-        borderRadius:    radius.md,
-        borderWidth:     1,
-        borderColor:     colors.accent + '30',
-        marginBottom:    spacing.sm,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    heightLabel: { flex: 1, fontSize: 15, color: colors.primary },
+    heightValue: { fontSize: 16, color: colors.primary },
+    heightUnit: { fontSize: 13, fontWeight: '500', color: colors.textSecondary },
+    heightInput: {
+        minWidth: 72,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.accent,
+        paddingVertical: 2,
+        fontSize: 16,
+        color: colors.textPrimary,
+        textAlign: 'right',
+    },
+
+    instruction: {
+        flexDirection: 'row',
+        gap: spacing.sm,
+        padding: spacing.md,
+        backgroundColor: colors.accentSubtle,
+        borderRadius: radius.md,
+        marginBottom: spacing.sm,
     },
     instructionIcon: { marginTop: 1 },
     instructionContent: { flex: 1 },
     instructionTitle: {
-        fontSize:     13,
-        fontWeight:   '700',
-        color:        colors.accent,
+        fontSize: 13,
+        color: colors.accent,
         marginBottom: 2,
     },
     instructionText: {
-        fontSize:   13,
-        color:      colors.textPrimary,
+        fontSize: 13,
+        color: colors.textPrimary,
         lineHeight: 19,
-    },
-
-    // Hint
-    hintRow: {
-        flexDirection:  'row',
-        alignItems:     'center',
-        justifyContent: 'center',
-        gap:            6,
-        paddingVertical: spacing.sm,
-        marginBottom:   spacing.sm,
     },
     hintText: {
         ...typography.caption,
         color: colors.textTertiary,
+        textAlign: 'center',
+        marginBottom: spacing.sm,
+        marginTop: spacing.xs,
+    },
+    tip: {
+        fontSize: 13,
+        color: colors.textSecondary,
+        textAlign: 'center',
+        lineHeight: 18,
+    },
+    tipLabel: { fontWeight: '600', color: colors.textSecondary },
+    defaults: {
+        fontSize: 12,
+        color: colors.textTertiary,
+        textAlign: 'center',
+        lineHeight: 17,
+        marginTop: 4,
     },
 
-    // Action buttons
     actionRow: {
-        flexDirection:  'row',
-        gap:            spacing.md,
-        marginTop:      spacing.sm,
+        flexDirection: 'row',
+        gap: spacing.md,
+        marginTop: spacing.md,
     },
     cancelBtn: {
-        flex:            1,
+        flex: 1,
         paddingVertical: 12,
-        borderRadius:    radius.md,
-        borderWidth:     1,
-        borderColor:     colors.border,
-        alignItems:      'center',
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        alignItems: 'center',
     },
     cancelBtnText: {
-        fontSize:   14,
+        fontSize: 14,
         fontWeight: '600',
-        color:      colors.textSecondary,
+        color: colors.textSecondary,
     },
     saveBtn: {
-        flex:            2,
+        flex: 2,
         paddingVertical: 12,
-        borderRadius:    radius.md,
+        borderRadius: radius.md,
         backgroundColor: colors.accent,
-        alignItems:      'center',
+        alignItems: 'center',
     },
     saveBtnDisabled: { opacity: 0.6 },
     saveBtnText: {
-        fontSize:   14,
+        fontSize: 14,
         fontWeight: '700',
-        color:      '#FFFFFF',
+        color: '#FFFFFF',
     },
 });

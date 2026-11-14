@@ -18,6 +18,9 @@
  *
  * Need Follow-Up is a calm amber tile when the count is above zero.
  * It is not a red alert card. Hide SGD, streaks, and holiday mode are not here.
+ *
+ * Worth a check-in is a calm navy hint. It shows only for a client whose last
+ * 3 check-ins are low energy and Always hungry. Clients never see it.
  */
 
 import React, { useState, useCallback } from 'react';
@@ -42,6 +45,7 @@ import { useAuth } from '../context/AuthContext';
 import UserAvatar from '../components/UserAvatar';
 import { getDashboard, getClientStatus, getRevenueSummary, RevenueSummary } from '../services/apiClient';
 import { DashboardSummary, ClientStatusItem } from '../types';
+import { WORTH_A_CHECK_IN_LABEL } from '../checkin/scale';
 
 function getGreeting(): string {
     const h = new Date().getHours();
@@ -167,6 +171,46 @@ const ac = StyleSheet.create({
     actionLabel: { fontSize: 13, color: palette.primary },
 });
 
+function WorthCheckInRow({ name }: { name: string }) {
+    const fonts = useKitFonts();
+    return (
+        <View
+            style={hint.card}
+            accessibilityRole="text"
+            accessibilityLabel={`${name}. ${WORTH_A_CHECK_IN_LABEL}.`}
+        >
+            <UserAvatar name={name} size={40} bgColor="#E7EEF2" textColor={palette.primary} />
+            <View style={hint.body}>
+                <Text style={[hint.name, fontStyle(fonts.bodySemibold, '600')]} numberOfLines={1}>{name}</Text>
+                <Text style={[hint.tag, fontStyle(fonts.bodySemibold, '600')]}>{WORTH_A_CHECK_IN_LABEL}</Text>
+                <Text style={[hint.detail, fontStyle(fonts.body, '400')]}>
+                    Low energy and always hungry on the last 3 check-ins.
+                </Text>
+            </View>
+        </View>
+    );
+}
+
+const hint = StyleSheet.create({
+    card: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        backgroundColor: '#F3F7F9',
+        borderRadius: radius.card,
+        borderWidth: 1,
+        borderColor: '#D5E2E8',
+        borderLeftWidth: 3,
+        borderLeftColor: palette.primary,
+        marginBottom: spacing.sm,
+        padding: spacing.base,
+    },
+    body: { flex: 1 },
+    name: { ...typography.label, color: palette.primary, marginBottom: 2 },
+    tag: { fontSize: 13, color: palette.primary },
+    detail: { ...typography.caption, color: '#3E5C6B', marginTop: 2 },
+});
+
 function EmptyPanel({
     icon, title, subtitle,
 }: {
@@ -272,6 +316,7 @@ export default function CoachDashboardScreen({ navigation }: any) {
     const followUpCount = clientStatus.filter(isRenewalNeeded).length;
     const doneClients   = clientStatus.filter(c => c.hasCheckedInToday);
     const missedClients = clientStatus.filter(c => !c.hasCheckedInToday);
+    const worthClients  = clientStatus.filter(c => c.worth_check_in === true);
     const missedCount   = missedClients.length;
 
     const coachFirst = firstName(user?.name);
@@ -515,6 +560,15 @@ export default function CoachDashboardScreen({ navigation }: any) {
                             ))
                         )}
                     </View>
+
+                    {worthClients.length > 0 && (
+                        <View style={s.section}>
+                            <SectionLabel title="WORTH A CHECK-IN" />
+                            {worthClients.map(client => (
+                                <WorthCheckInRow key={client.clientId} name={client.clientName} />
+                            ))}
+                        </View>
+                    )}
 
                     <View style={s.section}>
                         <SectionLabel title="RENEWALS TO FOLLOW UP" />

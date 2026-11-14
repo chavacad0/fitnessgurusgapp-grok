@@ -6,16 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ## How to update this file
 
-- While a pull request is open, add one short entry under **Unreleased / in review**. Link the pull request. Say what a person using the app will notice.
-- When that pull request merges, move the entry into a new dated section (`## [YYYY-MM-DD]`) and take it out of Unreleased. Do not rewrite older dated sections.
+- Add one short entry under today's date (`## [YYYY-MM-DD]`). Link the pull request. Say what a person using the app will notice. If that date already has a section, add the line there. Do not leave the entry under Unreleased.
+- Do not rewrite older dated sections.
 - Group lines as Added, Changed, or Fixed when that makes the list easier to scan.
 - Leave out secrets, tokens, and personal data. Open problems belong in [docs/AUDIT.md](docs/AUDIT.md), not here, until a change actually fixes them.
 
 ## [Unreleased]
 
+## [2026-11-14]
+
 ### Added
 
 - [Pull request #27](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/27) — Coaches can set the hours they actually work, the session length (30, 45, 60, or 90 minutes), and a buffer after each session (0, 10, or 15 minutes). They can block time, or open extra slots or close one date, without changing the weekly hours. The schedule lists those times in a calmer timeline. If working hours are not saved yet, the day is not filled with automatic slots, and bookings that are already there stay visible. Times are kept in Singapore time. A coach only edits their own hours.
+
+### Changed
+
+- [Pull request #23](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/23) — Body Measurements on Profile follows the approved figure cards. Female shows neck, waist, and hips. Male shows neck and waist. A Figure switch remembers Female or Male on the profile. Height can be added on the same card. Chest stays under + Add more, so a saved chest number is not lost. A tip says to measure in the morning with the tape snug, not tight. The body-fat estimate is not shown.
+- [Pull request #21](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/21) — Daily check-in Energy is five faces: Drained, Low, Okay, Good, and Great. Appetite is three chips: Not hungry, Normal, and Always hungry. They still save as numbers on the same fields, so coach charts and red flags keep working. After submit, a drained or low day says "Tough day, and you still checked in. That counts." The coach dashboard shows a calm navy "Worth a check-in" hint when a client's last 3 check-ins are low energy and always hungry. The client does not see that hint.
+
+### Docs
+
+- [Pull request #24](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/24) — Docs only. Inside the Holiday mode future plan, `PROJECT_STATUS.md` adds Travel mode with nearby gyms. A client types a destination city and dates (no live location). The app would list nearby gyms, with a hotel-room or outdoor workout as the fallback. The coach gets a heads-up, the streak stays frozen, and travel dates stay private to the client and their coach. Nothing in the app is built. The audit log is unchanged.
 
 ## [2026-11-13]
 

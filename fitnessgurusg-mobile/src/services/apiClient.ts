@@ -1377,6 +1377,8 @@ export interface ClientBodyProfile {
     chest_cm:            number | null;
     waist_cm:            number | null;
     hips_cm:             number | null;
+    /** Figure on Body Measurements. Null until the client chooses. */
+    sex:                 'female' | 'male' | null;
 }
 
 /**
@@ -1412,6 +1414,7 @@ export async function updateClientProfile(data: Partial<{
     chest_cm:            number;
     waist_cm:            number;
     hips_cm:             number;
+    sex:                 'female' | 'male';
 }>): Promise<{ success: boolean; message: string; name?: string }> {
     const headers  = await getAuthHeaders();
     const response = await fetch(`${BASE_URL}/api/clients/me/profile`, {

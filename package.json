@@ -9,6 +9,8 @@
     "test:reliability": "NODE_ENV=test tsx src/test/reliabilityRegression.ts",
     "test:availability": "NODE_ENV=test tsx src/test/availabilityRegression.ts",
     "test:photos": "NODE_ENV=test tsx src/test/photoAccessRegression.ts",
+    "test:profile": "NODE_ENV=test tsx src/test/profileFigureRegression.ts",
+    "test:checkin": "NODE_ENV=test tsx src/test/checkInScaleRegression.ts",
     "migrate:photos": "tsx src/scripts/migrate-photos.ts",
     "typecheck": "tsc --noEmit -p tsconfig.server.json",
     "test:legacy-sql": "tsx src/legacy-sql/test-db.ts",
