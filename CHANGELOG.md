@@ -13,16 +13,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ## [Unreleased]
 
-### Docs
-
-- [Pull request #24](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/24) — Docs only. Inside the Holiday mode future plan, `PROJECT_STATUS.md` adds Travel mode with nearby gyms. A client types a destination city and dates (no live location). The app would list nearby gyms, with a hotel-room or outdoor workout as the fallback. The coach gets a heads-up, the streak stays frozen, and travel dates stay private to the client and their coach. Nothing in the app is built. The audit log is unchanged.
-
 ## [2026-11-14]
 
 ### Changed
 
 - [Pull request #23](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/23) — Body Measurements on Profile follows the approved figure cards. Female shows neck, waist, and hips. Male shows neck and waist. A Figure switch remembers Female or Male on the profile. Height can be added on the same card. Chest stays under + Add more, so a saved chest number is not lost. A tip says to measure in the morning with the tape snug, not tight. The body-fat estimate is not shown.
 - [Pull request #21](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/21) — Daily check-in Energy is five faces: Drained, Low, Okay, Good, and Great. Appetite is three chips: Not hungry, Normal, and Always hungry. They still save as numbers on the same fields, so coach charts and red flags keep working. After submit, a drained or low day says "Tough day, and you still checked in. That counts." The coach dashboard shows a calm navy "Worth a check-in" hint when a client's last 3 check-ins are low energy and always hungry. The client does not see that hint.
+
+### Docs
+
+- [Pull request #24](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/24) — Docs only. Inside the Holiday mode future plan, `PROJECT_STATUS.md` adds Travel mode with nearby gyms. A client types a destination city and dates (no live location). The app would list nearby gyms, with a hotel-room or outdoor workout as the fallback. The coach gets a heads-up, the streak stays frozen, and travel dates stay private to the client and their coach. Nothing in the app is built. The audit log is unchanged.
 
 ## [2026-11-13]
 
