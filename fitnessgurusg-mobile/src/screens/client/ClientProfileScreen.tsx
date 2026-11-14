@@ -21,7 +21,7 @@ import {
     updateClientProfile,
     ClientBodyProfile,
 } from '../../services/apiClient';
-import BodyMeasurementGuide from '../../components/BodyMeasurementGuide';
+import BodyMeasurementGuide, { MeasurementFigure, MeasurementSave } from '../../components/BodyMeasurementGuide';
 import { Avatar } from '../../components/UserAvatar';
 import StatusBadge from '../../components/StatusBadge';
 
@@ -181,18 +181,31 @@ export default function ClientProfileScreen() {
     };
 
     // ── Save measurements ─────────────────────────────────────────────────────
-    const handleSaveMeasurements = async (
-        data: Partial<Record<string, number>>,
-    ) => {
+    const handleSaveMeasurements = async (data: MeasurementSave) => {
         setMeasurementSaving(true);
         try {
-            await updateClientProfile(data as any);
+            await updateClientProfile(data);
             await loadProfile();
         } catch (err: any) {
             Alert.alert('Could not save', err.message ?? 'Please try again.');
             throw err; // rethrow so the child knows save failed
         } finally {
             setMeasurementSaving(false);
+        }
+    };
+
+    // Figure choice is stored on the existing profile as sex ('female' | 'male').
+    const handleFigureChange = async (figure: MeasurementFigure) => {
+        try {
+            await updateClientProfile({ sex: figure });
+            if (profile) {
+                setProfile({ ...profile, sex: figure });
+            } else {
+                await loadProfile();
+            }
+        } catch (err: any) {
+            Alert.alert('Could not save', err.message ?? 'Please try again.');
+            throw err;
         }
     };
 
@@ -466,13 +479,16 @@ export default function ClientProfileScreen() {
                 {/* ── Body Measurements section ── */}
                 {!loading && (
                     <BodyMeasurementGuide
+                        figure={profile?.sex === 'male' ? 'male' : 'female'}
                         values={{
                             neck_cm:  profile?.neck_cm  ?? null,
                             chest_cm: profile?.chest_cm ?? null,
                             waist_cm: profile?.waist_cm ?? null,
                             hips_cm:  profile?.hips_cm  ?? null,
                         }}
+                        heightCm={profile?.height_cm ?? null}
                         onSave={handleSaveMeasurements}
+                        onFigureChange={handleFigureChange}
                         saving={measurementSaving}
                     />
                 )}

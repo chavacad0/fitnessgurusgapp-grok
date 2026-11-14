@@ -96,6 +96,12 @@ export interface Client {
     waist_cm?: number;
     /** Hips circumference in cm */
     hips_cm?: number;
+    /**
+     * Figure on Body Measurements. Optional.
+     * 'female' shows neck, waist, and hips. 'male' shows neck and waist.
+     * Unset means the phone shows the female figure until the client chooses.
+     */
+    sex?: 'female' | 'male';
 }
 
 /**
