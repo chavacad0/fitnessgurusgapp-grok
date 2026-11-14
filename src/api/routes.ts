@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { ObjectId } from 'mongodb';
-import { createCheckIn, getCheckInsByClient, getCheckInStatusForClients, getStreaksForClients, getMissedStreakForClients, upsertCheckIn } from '../repositories/mongoCheckinRepo';
+import { createCheckIn, getCheckInsByClient, getCheckInStatusForClients, getStreaksForClients, getMissedStreakForClients, upsertCheckIn, getRecentMoodForClients } from '../repositories/mongoCheckinRepo';
+import { worthACheckIn } from '../domain/checkInScale';
 import { getRedFlagsByClient } from '../repositories/mongoRedFlagRepo';
 import { detectRedFlagsForClient } from '../services/mongoRedFlagDetectorService';
 import { getAllClients, validateClientOwnership } from '../repositories/mongoClientRepo';
@@ -121,6 +122,9 @@ router.get('/clients', requireRole('coach'), async (req: AuthenticatedRequest, r
  * Returns streak, lastCheckInDate, hasCheckedInToday + session plan fields
  * (plan_name, sessions_remaining, expiry_date, plan_status) per client.
  * Session fields are only present when the client has an active plan.
+ *
+ * worth_check_in is true when that client's last 3 check-ins are low energy
+ * and Always hungry. Coach-only. A client token cannot call this route.
  */
 router.get('/clients/status', requireRole('coach'), async (req: AuthenticatedRequest, res: Response) => {
     const coachId = req.coach!.sub;
@@ -138,12 +142,13 @@ router.get('/clients/status', requireRole('coach'), async (req: AuthenticatedReq
 
         const clientIds = clients.map(c => c.id);
 
-        // 4 parallel queries: check-in status, streaks, missed-streaks, session plans
-        const [{ todaySet, latestDateMap }, streakMap, missedStreakMap, sessionMap] = await Promise.all([
+        // 5 parallel queries: check-in status, streaks, missed-streaks, session plans, recent mood
+        const [{ todaySet, latestDateMap }, streakMap, missedStreakMap, sessionMap, moodMap] = await Promise.all([
             getCheckInStatusForClients(clientIds, date),
             getStreaksForClients(clientIds, date),
             getMissedStreakForClients(clientIds, date),
             enrichWithSessionStatus(clientIds),
+            getRecentMoodForClients(clientIds, 3),
         ]);
 
         const PAUSE_THRESHOLD = 3;
@@ -164,6 +169,7 @@ router.get('/clients/status', requireRole('coach'), async (req: AuthenticatedReq
                 missed_checkin_streak: missedStreak,
                 check_in_status: derivedStatus,
                 check_in_reminders_enabled: (client as any).check_in_reminders_enabled as boolean | undefined,
+                worth_check_in: worthACheckIn(moodMap.get(client.id) ?? []),
                 // Session plan fields — only present when has_plan = true
                 ...(sessionStatus?.has_plan && {
                     plan_name: sessionStatus.plan_name,
