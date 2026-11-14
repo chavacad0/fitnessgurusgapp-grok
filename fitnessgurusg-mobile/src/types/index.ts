@@ -302,7 +302,7 @@ export interface AvailabilityRules {
 }
 
 export type CoachScheduleItem =
-    | { kind: 'open'; slot_id: string; start_time: string; end_time: string; duration_minutes: number }
+    | { kind: 'open'; slot_id: string; start_time: string; end_time: string; duration_minutes: number; good_for?: string[] }
     | {
         kind: 'booked';
         booking_id: string;
@@ -317,6 +317,15 @@ export type CoachScheduleItem =
     | { kind: 'day_off'; block_id: string; label: string }
     | { kind: 'closed'; override_id: string; note?: string };
 
+export interface PreferenceHeat {
+    has_preferences: boolean;
+    counts: number[];
+    busiest_title?: string;
+    busiest_body?: string;
+    quieter_title?: string;
+    quieter_body?: string;
+}
+
 export interface CoachSchedule {
     timezone: 'Asia/Singapore';
     date: string;
@@ -326,6 +335,35 @@ export interface CoachSchedule {
     counts: { open: number; booked: number; done: number; missed: number };
     items: CoachScheduleItem[];
     month: Record<string, { open: number; booked: number; done: number; missed: number }>;
+    heat?: PreferenceHeat;
+}
+
+export type BestWindow = 'weekday_mornings' | 'lunch' | 'after_work' | 'weekends';
+
+export interface BestTimes {
+    coach_name: string;
+    coach_first_name: string;
+    slot_length_minutes: number;
+    windows: BestWindow[];
+    exact_times: Array<{ id: string; day: string; time: string; note?: string }>;
+    away: Array<{ id: string; start: string; end: string; days: number; badge: 'Upcoming' | 'Later' }>;
+}
+
+export interface TimeRequestItem {
+    id: string;
+    client_id: string;
+    client_name: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    note?: string;
+    status: 'pending' | 'suggested' | 'accepted' | 'declined';
+    suggested_date?: string;
+    suggested_start?: string;
+    suggested_end?: string;
+    headline: string;
+    detail: string;
+    suggestion_label?: string;
 }
 
 /**

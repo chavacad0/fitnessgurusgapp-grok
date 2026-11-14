@@ -18,6 +18,19 @@ import {
     saveSlotSettings,
     saveWorkingHours,
 } from '../services/availabilityRulesService';
+import {
+    acceptTimeRequest,
+    addOwnAway,
+    createTimeRequest,
+    declineTimeRequest,
+    listCoachRequests,
+    listOwnRequests,
+    readClientBestTimesForCoach,
+    readOwnBestTimes,
+    removeOwnAway,
+    suggestTimeRequest,
+    writeOwnBestTimes,
+} from '../services/clientPreferencesService';
 import { getSessionStatus, completeSession, enrichWithSessionStatus } from '../services/sessionService';
 import { bookSession, completeBookingById, cancelBookingById, rescheduleBookingById, getDashboardSummary, quickBookSession } from '../services/bookingService';
 import { getBookingsByClient, cancelBookingByClient } from '../repositories/mongoBookingRepo';
@@ -395,6 +408,69 @@ router.get('/clients/me/availability', clientAuthMiddleware, async (req: Request
     } catch (error: any) {
         logError('GET /clients/me/availability', error);
         res.status(500).json({ success: false, error: 'Failed to load available slots.' });
+    }
+});
+
+/**
+ * GET /api/clients/me/best-times
+ * The signed-in client's windows, exact times, and away dates.
+ * Only that client can read this route.
+ */
+router.get('/clients/me/best-times', clientAuthMiddleware, async (req: Request, res: Response) => {
+    try {
+        const best = await readOwnBestTimes(req.clientAuth!.clientId);
+        res.json({ success: true, ...best });
+    } catch (error: any) {
+        handleServiceError(res, 'GET /clients/me/best-times', error);
+    }
+});
+
+router.put('/clients/me/best-times', clientAuthMiddleware, async (req: Request, res: Response) => {
+    try {
+        const best = await writeOwnBestTimes(req.clientAuth!.clientId, req.body);
+        res.json({ success: true, ...best });
+    } catch (error: any) {
+        handleServiceError(res, 'PUT /clients/me/best-times', error);
+    }
+});
+
+router.post('/clients/me/away-dates', clientAuthMiddleware, async (req: Request, res: Response) => {
+    try {
+        const best = await addOwnAway(req.clientAuth!.clientId, req.body);
+        res.status(201).json({ success: true, ...best });
+    } catch (error: any) {
+        handleServiceError(res, 'POST /clients/me/away-dates', error);
+    }
+});
+
+router.delete('/clients/me/away-dates/:awayId', clientAuthMiddleware, async (req: Request, res: Response) => {
+    try {
+        const best = await removeOwnAway(req.clientAuth!.clientId, req.params['awayId'] as string);
+        res.json({ success: true, ...best });
+    } catch (error: any) {
+        handleServiceError(res, 'DELETE /clients/me/away-dates', error);
+    }
+});
+
+/**
+ * POST /api/clients/me/time-requests
+ * Asks the client's own coach for a time. Nothing is booked.
+ */
+router.post('/clients/me/time-requests', clientAuthMiddleware, async (req: Request, res: Response) => {
+    try {
+        const request = await createTimeRequest(req.clientAuth!.clientId, req.body);
+        res.status(201).json({ success: true, request });
+    } catch (error: any) {
+        handleServiceError(res, 'POST /clients/me/time-requests', error);
+    }
+});
+
+router.get('/clients/me/time-requests', clientAuthMiddleware, async (req: Request, res: Response) => {
+    try {
+        const requests = await listOwnRequests(req.clientAuth!.clientId);
+        res.json({ success: true, requests });
+    } catch (error: any) {
+        handleServiceError(res, 'GET /clients/me/time-requests', error);
     }
 });
 
@@ -1599,6 +1675,61 @@ router.get('/coach/schedule', async (req: AuthenticatedRequest, res: Response) =
         res.json({ success: true, ...schedule });
     } catch (error: any) {
         handleServiceError(res, 'GET /coach/schedule', error);
+    }
+});
+
+/**
+ * GET /api/coach/clients/:clientId/best-times
+ * The coach can read best times only for their own client.
+ */
+router.get('/coach/clients/:clientId/best-times', async (req: AuthenticatedRequest, res: Response) => {
+    const coachId = req.coach!.sub;
+    const clientId = req.params['clientId'] as string;
+    try {
+        const best = await readClientBestTimesForCoach(coachId, clientId);
+        res.json({ success: true, ...best });
+    } catch (error: any) {
+        handleServiceError(res, 'GET /coach/clients/best-times', error);
+    }
+});
+
+/**
+ * Time requests. Accept books through the existing booking path.
+ * Suggest and decline do not create a booking.
+ */
+router.get('/coach/time-requests', async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const requests = await listCoachRequests(req.coach!.sub);
+        res.json({ success: true, requests });
+    } catch (error: any) {
+        handleServiceError(res, 'GET /coach/time-requests', error);
+    }
+});
+
+router.post('/coach/time-requests/:requestId/accept', async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const request = await acceptTimeRequest(req.coach!.sub, req.params['requestId'] as string);
+        res.json({ success: true, request });
+    } catch (error: any) {
+        handleServiceError(res, 'POST /coach/time-requests/accept', error);
+    }
+});
+
+router.post('/coach/time-requests/:requestId/decline', async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const request = await declineTimeRequest(req.coach!.sub, req.params['requestId'] as string);
+        res.json({ success: true, request });
+    } catch (error: any) {
+        handleServiceError(res, 'POST /coach/time-requests/decline', error);
+    }
+});
+
+router.post('/coach/time-requests/:requestId/suggest', async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const request = await suggestTimeRequest(req.coach!.sub, req.params['requestId'] as string, req.body);
+        res.json({ success: true, request });
+    } catch (error: any) {
+        handleServiceError(res, 'POST /coach/time-requests/suggest', error);
     }
 });
 

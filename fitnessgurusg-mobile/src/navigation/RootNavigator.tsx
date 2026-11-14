@@ -18,6 +18,10 @@ import AssignWorkoutScreen from '../screens/coach/AssignWorkoutScreen';
 import WorkingHoursScreen from '../screens/coach/WorkingHoursScreen';
 import SlotLengthScreen from '../screens/coach/SlotLengthScreen';
 import OneOffChangesScreen from '../screens/coach/OneOffChangesScreen';
+import TimeRequestsScreen from '../screens/coach/TimeRequestsScreen';
+import ClientBestTimesScreen from '../screens/client/ClientBestTimesScreen';
+import ClientRequestTimeScreen from '../screens/client/ClientRequestTimeScreen';
+import ClientAwayDatesScreen from '../screens/client/ClientAwayDatesScreen';
 import { FIRST_LOGIN_KEY } from '../config/constants';
 import { colors, typography } from '../theme/theme';
 
@@ -68,6 +72,21 @@ function ClientNavigator() {
                 name="ClientMyBookings"
                 component={ClientMyBookingsScreen}
                 options={{ title: 'My Bookings', presentation: 'card' }}
+            />
+            <ClientStack.Screen
+                name="ClientBestTimes"
+                component={ClientBestTimesScreen}
+                options={{ headerShown: false, presentation: 'card' }}
+            />
+            <ClientStack.Screen
+                name="ClientRequestTime"
+                component={ClientRequestTimeScreen}
+                options={{ headerShown: false, presentation: 'card' }}
+            />
+            <ClientStack.Screen
+                name="ClientAwayDates"
+                component={ClientAwayDatesScreen}
+                options={{ headerShown: false, presentation: 'card' }}
             />
         </ClientStack.Navigator>
     );
@@ -121,6 +140,11 @@ function CoachNavigator() {
             <CoachStack.Screen
                 name="OneOffChanges"
                 component={OneOffChangesScreen}
+                options={{ headerShown: false, presentation: 'card' }}
+            />
+            <CoachStack.Screen
+                name="TimeRequests"
+                component={TimeRequestsScreen}
                 options={{ headerShown: false, presentation: 'card' }}
             />
         </CoachStack.Navigator>

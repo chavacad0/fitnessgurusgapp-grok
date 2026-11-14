@@ -130,6 +130,21 @@ async function initIndexes(db: Db): Promise<void> {
             { unique: true, name: 'availability_rules_by_coach' }
         );
 
+        // One best-times document per client. The coach reads it only for their own clients.
+        await db.collection('client_best_times').createIndex(
+            { client_id: 1 },
+            { unique: true, name: 'best_times_by_client' }
+        );
+
+        await db.collection('time_requests').createIndex(
+            { coach_id: 1, status: 1 },
+            { name: 'time_requests_by_coach' }
+        );
+        await db.collection('time_requests').createIndex(
+            { client_id: 1, created_at: -1 },
+            { name: 'time_requests_by_client' }
+        );
+
         // bookings
         //  → Dashboard and bookings list filter by coach_id + date.
         //  → Client view filters by client_id + status.

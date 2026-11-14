@@ -19,6 +19,9 @@ import {
     AvailabilityRules,
     AvailabilityWeekday,
     CoachSchedule,
+    BestTimes,
+    BestWindow,
+    TimeRequestItem,
     BookingSlot,
     SessionStatusResponse,
     DashboardSummary,
@@ -893,6 +896,92 @@ export async function removeAvailabilityOverride(overrideId: string): Promise<Av
 export async function getCoachSchedule(date: string): Promise<CoachSchedule & { success: boolean }> {
     const headers = await getAuthHeaders();
     const response = await fetch(`${BASE_URL}/api/coach/schedule?date=${date}`, { headers });
+    return handleResponse(response);
+}
+
+export async function getMyBestTimes(): Promise<BestTimes & { success: boolean }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/clients/me/best-times`, { headers });
+    return handleResponse(response);
+}
+
+export async function saveMyBestTimes(body: {
+    windows: BestWindow[];
+    exact_times: Array<{ id?: string; day: string; time: string; note?: string }>;
+}): Promise<BestTimes & { success: boolean }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/clients/me/best-times`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(body),
+    });
+    return handleResponse(response);
+}
+
+export async function addAwayDates(start: string, end: string): Promise<BestTimes & { success: boolean }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/clients/me/away-dates`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ start, end }),
+    });
+    return handleResponse(response);
+}
+
+export async function removeAwayDates(awayId: string): Promise<BestTimes & { success: boolean }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/clients/me/away-dates/${awayId}`, {
+        method: 'DELETE',
+        headers,
+    });
+    return handleResponse(response);
+}
+
+export async function sendTimeRequest(body: {
+    date: string;
+    start_time: string;
+    note?: string;
+}): Promise<{ success: boolean; request: TimeRequestItem }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/clients/me/time-requests`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+    });
+    return handleResponse(response);
+}
+
+export async function getMyTimeRequests(): Promise<{ success: boolean; requests: TimeRequestItem[] }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/clients/me/time-requests`, { headers });
+    return handleResponse(response);
+}
+
+export async function getCoachTimeRequests(): Promise<{ success: boolean; requests: TimeRequestItem[] }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/coach/time-requests`, { headers });
+    return handleResponse(response);
+}
+
+export async function acceptTimeRequest(id: string): Promise<{ success: boolean; request: TimeRequestItem }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/coach/time-requests/${id}/accept`, { method: 'POST', headers });
+    return handleResponse(response);
+}
+
+export async function declineTimeRequest(id: string): Promise<{ success: boolean; request: TimeRequestItem }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/coach/time-requests/${id}/decline`, { method: 'POST', headers });
+    return handleResponse(response);
+}
+
+export async function suggestTimeRequest(id: string, date: string, start_time: string): Promise<{ success: boolean; request: TimeRequestItem }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BASE_URL}/api/coach/time-requests/${id}/suggest`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ date, start_time }),
+    });
     return handleResponse(response);
 }
 

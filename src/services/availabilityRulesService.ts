@@ -37,6 +37,7 @@ import {
     todayInSingapore,
     toMinutes,
 } from './slotGeneration';
+import { goodForNames, preferenceHeat, PreferenceHeat } from './clientPreferencesService';
 
 /**
  * Coach working hours.
@@ -443,6 +444,8 @@ export interface ScheduleOpenItem {
     start_time: string;
     end_time: string;
     duration_minutes: number;
+    /** Client names whose best times match this open slot. Away dates are left out. */
+    good_for?: string[];
 }
 
 export interface ScheduleBlockedItem {
@@ -489,6 +492,7 @@ export interface CoachSchedule {
     counts: DayCounts;
     items: ScheduleItem[];
     month: Record<string, DayCounts>;
+    heat: PreferenceHeat;
 }
 
 function durationMinutes(start: string, end: string): number {
@@ -652,6 +656,18 @@ export async function getCoachSchedule(coachId: string, dateInput?: string): Pro
     });
 
     const shown = rules ?? defaultRules(coachId);
+    const heat = await preferenceHeat(coachId);
+    const labeled: ScheduleItem[] = [];
+    for (const item of items) {
+        if (item.kind !== 'open') {
+            labeled.push(item);
+            continue;
+        }
+        labeled.push({
+            ...item,
+            good_for: await goodForNames(coachId, date, item.start_time),
+        });
+    }
     return {
         timezone: 'Asia/Singapore',
         date,
@@ -659,8 +675,9 @@ export async function getCoachSchedule(coachId: string, dateInput?: string): Pro
         slot_length_minutes: shown.slot_length_minutes,
         buffer_minutes: shown.buffer_minutes,
         counts: month[date] ?? countFor(date),
-        items,
+        items: labeled,
         month,
+        heat,
     };
 }
 
