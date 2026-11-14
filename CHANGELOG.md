@@ -13,6 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Hea
 
 ## [Unreleased]
 
+## [2026-11-14]
+
 ### Changed
 
 - [Pull request #21](https://github.com/chavacad0/fitnessgurusgapp-grok/pull/21) — Daily check-in Energy is five faces: Drained, Low, Okay, Good, and Great. Appetite is three chips: Not hungry, Normal, and Always hungry. They still save as numbers on the same fields, so coach charts and red flags keep working. After submit, a drained or low day says "Tough day, and you still checked in. That counts." The coach dashboard shows a calm navy "Worth a check-in" hint when a client's last 3 check-ins are low energy and always hungry. The client does not see that hint.
